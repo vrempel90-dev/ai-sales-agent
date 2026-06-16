@@ -11,25 +11,41 @@ from datetime import datetime, timezone
 
 router = Router()
 EMPTY_HELP = "Добавьте текст после команды. Пример:\n{example}"
+UNKNOWN_COMMAND = "Неизвестная команда. Напишите /agents, чтобы посмотреть список агентов."
+OPTIONAL_TEXT_COMMANDS = {"/posts", "/niches"}
+
 
 def arg_text(message: Message) -> str:
     parts = (message.text or "").split(maxsplit=1)
     return parts[1].strip() if len(parts) > 1 else ""
 
+
+def get_command_name(command) -> str:
+    command_name = command.command if hasattr(command, "command") else str(command)
+    if not command_name.startswith("/"):
+        command_name = f"/{command_name}"
+    return command_name
+
+
 async def run_prompt(message: Message, settings: Settings, command: str, text: str):
-    if not text and command not in {"/posts", "/niches"}:
-        await message.answer(EMPTY_HELP.format(example=AGENTS[command].example)); return
+    command_name = get_command_name(command)
+    if command_name not in AGENTS:
+        await message.answer(UNKNOWN_COMMAND)
+        return
+    if not text and command_name not in OPTIONAL_TEXT_COMMANDS:
+        await message.answer(EMPTY_HELP.format(example=AGENTS[command_name].example))
+        return
     await message.answer("Готовлю ответ через Ollama...")
     try:
-        await message.answer(await ask_ollama(settings, build_prompt(command, text)))
+        await message.answer(await ask_ollama(settings, build_prompt(command_name, text)))
     except RuntimeError as e:
         await message.answer(str(e))
 
 @router.message(Command("agents"))
 async def cmd_agents(message: Message): await message.answer(agents_help())
 
-for _cmd in [c[1:] for c in AGENTS]:
-    async def handler(message: Message, settings: Settings, command="/"+_cmd):
+for _cmd in [c.lstrip("/") for c in AGENTS]:
+    async def handler(message: Message, settings: Settings, command=_cmd):
         await run_prompt(message, settings, command, arg_text(message))
     router.message(Command(_cmd))(handler)
 
@@ -50,6 +66,7 @@ async def cmd_day(message: Message, settings: Settings):
     await message.answer("Готовлю день продаж через Ollama...")
     try: await message.answer(await ask_ollama(settings, prompt))
     except RuntimeError as e: await message.answer(str(e))
+
 
 def render_post(post: QueuedPost) -> str:
     return f"Threads draft #{post.id}\nСтатус: {post.status}\n\n{post.text}\n\nПубликация только после подтверждения."
