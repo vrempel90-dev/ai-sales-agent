@@ -1,0 +1,46 @@
+import re
+
+MAX_THREADS_POST_LENGTH = 450
+MAX_HASHTAGS = 5
+MAX_LINKS = 1
+
+_FORBIDDEN_PATTERNS = [
+    (r"\bгарантир\w*\b", "нельзя обещать гарантированный результат"),
+    (r"\b100\s*%\b", "нельзя обещать 100% результат"),
+    (r"\bточно\s+получите\b", "нельзя обещать гарантированный результат"),
+    (r"\bгарантированн\w+\s+(продаж\w*|прибыл\w*|доход\w*|результат\w*)\b", "нельзя обещать гарантированный результат"),
+    (r"\bспам\w*\b", "нельзя публиковать контент про спам"),
+    (r"\bобход\w*\s+лимит\w*\b", "нельзя публиковать контент про обход лимитов"),
+    (r"\bавто\s*лайк\w*\b|\bавтолайк\w*\b", "нельзя публиковать контент про автолайки"),
+    (r"\bавто\s*подпис\w*\b|\bавтоподпис\w*\b", "нельзя публиковать контент про автоподписки"),
+    (r"\bмассов\w+\s+коммент\w*\b", "нельзя публиковать контент про массовые комментарии"),
+    (r"\bавто\s*личк\w*\b|\bавтоличк\w*\b", "нельзя публиковать контент про автолички"),
+]
+
+
+def validate_threads_post(text: str) -> tuple[bool, str]:
+    """Validate that a Threads post is safe and suitable for publication."""
+    normalized = (text or "").strip()
+    if not normalized:
+        return False, "текст пустой"
+    if len(normalized) > MAX_THREADS_POST_LENGTH:
+        return False, f"текст длиннее {MAX_THREADS_POST_LENGTH} символов"
+
+    lowered = normalized.lower()
+    for pattern, reason in _FORBIDDEN_PATTERNS:
+        if re.search(pattern, lowered, flags=re.IGNORECASE):
+            return False, reason
+
+    hashtags = re.findall(r"(?<!\w)#\w+", normalized, flags=re.UNICODE)
+    if len(hashtags) > MAX_HASHTAGS:
+        return False, "больше 5 хэштегов"
+
+    links = re.findall(r"https?://\S+|www\.\S+", normalized, flags=re.IGNORECASE)
+    if len(links) > MAX_LINKS:
+        return False, "больше 1 ссылки"
+
+    # Basic publishability check: require at least some letters, not only punctuation/emoji/links.
+    if not re.search(r"[A-Za-zА-Яа-яЁё]", normalized):
+        return False, "текст не выглядит пригодным для публикации"
+
+    return True, "ok"

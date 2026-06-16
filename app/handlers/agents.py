@@ -95,9 +95,11 @@ async def health(message: Message, settings: Settings):
         f"Модель Ollama: {settings.ollama_model}\n"
         f"Ollama URL: {settings.ollama_base_url}\n"
         f"Threads API настроен: {'yes' if settings.threads_api_configured else 'no'}\n"
-        f"Draft-постов: {post_queue.get_draft_count()}\n"
+        f"Автопостинг включен: {'yes' if settings.threads_auto_posting_enabled else 'no'}\n"
+        f"Часы публикаций: {','.join(map(str, settings.threads_auto_post_hours))}\n"
+        f"Дневной лимит: {settings.threads_daily_post_limit}\n"
         f"Опубликовано сегодня: {post_queue.get_published_count_for_date(today)}\n"
-        f"Автопостинг включен: {'yes' if settings.threads_auto_posting_enabled else 'no'}"
+        f"Draft-постов: {post_queue.get_draft_count()}"
     )
 
 @router.message(Command("autopost_status"))

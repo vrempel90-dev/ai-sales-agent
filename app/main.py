@@ -5,6 +5,7 @@ from aiogram.client.default import DefaultBotProperties
 from app.config import get_settings
 from app.handlers import agents, sales
 from app.post_queue import PostQueue
+from app.threads_scheduler import run_threads_scheduler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -27,6 +28,12 @@ async def main():
     dp["settings"] = settings
     dp.include_router(sales.router)
     dp.include_router(agents.router)
+
+    if settings.threads_auto_posting_enabled:
+        asyncio.create_task(run_threads_scheduler(settings, queue))
+    else:
+        logger.info("Auto Threads Posting: disabled")
+
     await dp.start_polling(bot)
 
 
