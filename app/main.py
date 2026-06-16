@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
 from app.config import get_settings
 from app.handlers import agents, sales
 from app.post_queue import PostQueue
@@ -23,7 +22,7 @@ async def main():
     logger.info("Threads API configured: %s", "yes" if settings.threads_api_configured else "no")
     logger.info("auto posting enabled: %s", "yes" if settings.threads_auto_posting_enabled else "no")
 
-    bot = Bot(settings.telegram_bot_token, default=DefaultBotProperties(parse_mode="HTML"))
+    bot = Bot(settings.telegram_bot_token)
     dp = Dispatcher()
     dp["settings"] = settings
     dp.include_router(sales.router)

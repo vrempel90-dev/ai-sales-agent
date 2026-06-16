@@ -48,10 +48,10 @@ def build_prompt(command: str, text: str) -> str:
 def agents_help() -> str:
     blocks = []
     for block in ["Маркетинг и контент","Продажи и диалоги","Аналитика, офферы и КП","Разработка, ТЗ и проект"]:
-        lines = [f"<b>{block}:</b>"]
+        lines = [f"{block}:"]
         for i,a in enumerate([x for x in AGENTS.values() if x.block == block], 1):
             num = list(AGENTS).index(a.command)+1
             lines.append(f"{num}. {a.command} — {a.description}")
         blocks.append("\n".join(lines))
-    blocks.append("<b>Threads Publishing Agent:</b>\n• /threads_day\n• /threads_post\n• /threads_queue\n• /threads_publish\n• /threads_rewrite\n• /threads_skip\n• /threads_next")
+    blocks.append("Threads Publishing Agent:\n• /threads_day\n• /threads_post тема поста\n• /threads_queue\n• /threads_publish id_поста\n• /threads_rewrite id_поста\n• /threads_skip id_поста\n• /threads_next")
     return "\n\n".join(blocks)
