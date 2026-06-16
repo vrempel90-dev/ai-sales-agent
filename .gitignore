@@ -1,4 +1,9 @@
-__pycache__/
-*.py[cod]
-.venv/
 .env
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.py[cod]
+*.db
+/data/
+ai_sales_agent.db

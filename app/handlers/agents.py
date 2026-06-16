@@ -7,6 +7,7 @@ from app.keyboards import threads_post_keyboard
 from app.ollama_client import ask_ollama
 from app.post_queue import post_queue, QueuedPost
 from app.threads_client import ThreadsClient
+from datetime import datetime, timezone
 
 router = Router()
 EMPTY_HELP = "Добавьте текст после команды. Пример:\n{example}"
@@ -86,7 +87,52 @@ async def threads_queue(message: Message):
     if not posts: await message.answer("Очередь Threads пустая."); return
     await message.answer("\n".join(f"#{p.id} — {p.status} — {p.text[:80]}" for p in posts))
 
-async def publish_by_id(message: Message, settings: Settings, pid: int):
+@router.message(Command("health"))
+async def health(message: Message, settings: Settings):
+    today = datetime.now(timezone.utc).date()
+    await message.answer(
+        "✅ Бот работает\n"
+        f"Модель Ollama: {settings.ollama_model}\n"
+        f"Ollama URL: {settings.ollama_base_url}\n"
+        f"Threads API настроен: {'yes' if settings.threads_api_configured else 'no'}\n"
+        f"Draft-постов: {post_queue.get_draft_count()}\n"
+        f"Опубликовано сегодня: {post_queue.get_published_count_for_date(today)}\n"
+        f"Автопостинг включен: {'yes' if settings.threads_auto_posting_enabled else 'no'}"
+    )
+
+@router.message(Command("autopost_status"))
+async def autopost_status(message: Message, settings: Settings):
+    await message.answer(
+        f"Автопостинг: {'включен' if settings.threads_auto_posting_enabled else 'выключен'}\n"
+        f"Постов в день: {settings.threads_auto_posts_per_day}\n"
+        f"Часы: {','.join(map(str, settings.threads_auto_post_hours))}\n"
+        f"Timezone: {settings.threads_auto_post_timezone}\n"
+        f"Лимит в день: {settings.threads_daily_post_limit}"
+    )
+
+@router.message(Command("autopost_on"))
+async def autopost_on(message: Message):
+    await message.answer("Включите THREADS_AUTO_POSTING_ENABLED=true в Railway Variables и перезапустите сервис.")
+
+@router.message(Command("autopost_off"))
+async def autopost_off(message: Message):
+    await message.answer("Выключите THREADS_AUTO_POSTING_ENABLED=false в Railway Variables и перезапустите сервис.")
+
+@router.message(Command("autopost_plan"))
+async def autopost_plan(message: Message, settings: Settings):
+    await message.answer(f"План автопостинга: {settings.threads_auto_posts_per_day} постов/день в часы {settings.threads_auto_post_hours} ({settings.threads_auto_post_timezone}).")
+
+@router.message(Command("autopost_now"))
+async def autopost_now(message: Message, settings: Settings):
+    post = post_queue.get_next_publishable()
+    if not post: await message.answer("Нет постов для публикации."); return
+    await publish_by_id(message, settings, post.id)
+
+@router.message(Command("autopost_generate"))
+async def autopost_generate(message: Message, settings: Settings):
+    await threads_day(message, settings)
+
+async def publish_by_id(message: Message, settings: Settings, pid):
     post = post_queue.get_post(pid)
     if not post: await message.answer("Пост не найден."); return
     try:
@@ -100,19 +146,19 @@ async def publish_by_id(message: Message, settings: Settings, pid: int):
 async def threads_publish(message: Message, settings: Settings):
     text = arg_text(message)
     if not text or not text.isdigit(): await message.answer("Добавьте id поста. Пример:\n/threads_publish 1"); return
-    await publish_by_id(message, settings, int(text))
+    await publish_by_id(message, settings, text)
 
 @router.message(Command("threads_skip"))
 async def threads_skip(message: Message):
     text=arg_text(message)
     if not text or not text.isdigit(): await message.answer("Добавьте id поста. Пример:\n/threads_skip 1"); return
-    post = post_queue.skip_post(int(text)); await message.answer("Пост пропущен." if post else "Пост не найден.")
+    post = post_queue.skip_post(text); await message.answer("Пост пропущен." if post else "Пост не найден.")
 
 @router.message(Command("threads_rewrite"))
 async def threads_rewrite(message: Message, settings: Settings):
     text=arg_text(message)
     if not text or not text.isdigit(): await message.answer("Добавьте id поста. Пример:\n/threads_rewrite 1"); return
-    post=post_queue.get_post(int(text))
+    post=post_queue.get_post(text)
     if not post: await message.answer("Пост не найден."); return
     try:
         new_text = await ask_ollama(settings, f"Переделай Threads-пост: короче, живее, без спама, с мягким CTA.\n\n{post.text}")
@@ -129,7 +175,7 @@ async def threads_next(message: Message):
 async def threads_callback(callback: CallbackQuery, settings: Settings):
     parts = callback.data.split(":")
     action = parts[1]
-    pid = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else None
+    pid = parts[2] if len(parts) > 2 else None
     if action == "publish" and pid: await publish_by_id(callback.message, settings, pid)
     elif action == "skip" and pid:
         post_queue.skip_post(pid); await callback.message.answer("Пост пропущен.")

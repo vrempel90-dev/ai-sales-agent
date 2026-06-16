@@ -32,7 +32,9 @@ Threads:
 /threads_day — подготовить 5 постов на сегодня
 /threads_post <тема> — подготовить пост
 /threads_queue — очередь постов
-/threads_publish <id> — опубликовать пост после подтверждения"""
+/threads_publish <id> — опубликовать пост после подтверждения
+/health — статус Railway/Ollama/Threads
+/autopost_status — статус автопостинга"""
 
 @router.message(CommandStart())
 async def start(message: Message):
