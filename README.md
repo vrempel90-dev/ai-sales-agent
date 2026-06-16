@@ -128,7 +128,7 @@ python -m app.main
 
 ```env
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-OLLAMA_BASE_URL=http://ollama:11434
+OLLAMA_BASE_URL=http://ollama.railway.internal:11434
 OLLAMA_MODEL=llama3.2:3b
 DATABASE_PATH=/data/ai_sales_agent.db
 THREADS_ACCESS_TOKEN=your_threads_access_token
@@ -160,9 +160,9 @@ THREADS_DAILY_POST_LIMIT=3
 
 Варианты подключения:
 
-- **Вариант A: отдельный Railway Ollama service.** Создайте отдельный сервис `ollama`, скачайте модель и укажите для бота внутренний URL, например `OLLAMA_BASE_URL=http://ollama:11434`, или URL, который даст Railway.
+- **Вариант A: отдельный Railway Ollama service.** Если Ollama-сервис в Railway называется `ollama`, используйте `OLLAMA_BASE_URL=http://ollama.railway.internal:11434`. Если сервис называется иначе, замените `ollama` на имя своего Railway-сервиса: `http://<service-name>.railway.internal:11434`. Если Railway показывает другой internal/private URL, используйте именно его.
 - **Вариант B: внешний VPS с Ollama.** Запустите Ollama на VPS и укажите публичный/приватный URL VPS в `OLLAMA_BASE_URL`.
-- **Вариант C: локальная Ollama не подходит для Railway.** `http://localhost:11434` работает только на вашей машине, но не из контейнера Railway.
+- **Вариант C: локальная Ollama не подходит для Railway.** `http://localhost:11434` работает только на вашей машине. На Railway `localhost` будет указывать на сам `ai-sales-agent` контейнер, а не на Ollama.
 
 Для старта на Railway используйте модель:
 
@@ -183,7 +183,7 @@ llama3.2:3b
 - `/threads_day`
 - `/threads_queue`
 
-`/health` показывает, что бот работает, модель Ollama, URL Ollama, статус Threads API, количество draft-постов, количество опубликованных сегодня и статус автопостинга.
+`/health` показывает, что бот работает, модель Ollama, URL Ollama, статус Threads API, включён ли автопостинг, часы публикаций, дневной лимит, количество опубликованных сегодня и количество draft-постов.
 
 ### 6. Автопостинг Threads
 
@@ -207,5 +207,23 @@ THREADS_AUTO_POSTING_ENABLED=true
 - `/autopost_generate`
 - `/autopost_on`
 - `/autopost_off`
+
+### 7. Background scheduler автопостинга
+
+Auto scheduler actually runs in background when `THREADS_AUTO_POSTING_ENABLED=true`.
+
+Как это работает:
+
+- автопостинг выключен по умолчанию: `THREADS_AUTO_POSTING_ENABLED=false`;
+- для Railway нужно поставить `THREADS_AUTO_POSTING_ENABLED=true` и перезапустить сервис;
+- для реальной публикации нужны `THREADS_ACCESS_TOKEN` и `THREADS_USER_ID`;
+- без Threads API scheduler не будет публиковать, а только залогирует понятную ошибку;
+- scheduler работает в фоне вместе с Telegram-ботом и не блокирует polling;
+- каждые 60 секунд проверяет текущее время в `THREADS_AUTO_POST_TIMEZONE`;
+- публикует не больше одного поста в один scheduled hour из `THREADS_AUTO_POST_HOURS`;
+- публикует не больше `THREADS_DAILY_POST_LIMIT` постов в день;
+- бот не делает комментарии, личку, лайки, подписки, автолайки, автоподписки или массовые комментарии;
+- публикует только собственные посты из очереди;
+- если очередь пустая, может сгенерировать безопасный пост через Ollama, если `THREADS_AUTO_GENERATE_IF_QUEUE_EMPTY=true`.
 
 Важно: автопостинг публикует только собственные подготовленные посты. Бот не пишет комментарии, не пишет в личку, не лайкает и не подписывается.
