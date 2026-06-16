@@ -28,14 +28,15 @@ def _truncate_response_body(response: httpx.Response | None) -> str | None:
     return body
 
 
-def _log_ollama_error(endpoint: str, exc: Exception) -> None:
+def _log_ollama_error(endpoint: str, exc: Exception, url: str | None = None) -> None:
     response = getattr(exc, "response", None)
     status_code = getattr(response, "status_code", None)
     response_body = _truncate_response_body(response) if isinstance(response, httpx.Response) else None
 
     logger.warning(
-        "Ollama request failed: endpoint=%s status_code=%s exception_type=%s response_body=%r",
+        "Ollama request failed: endpoint=%s url=%s status_code=%s exception_type=%s response_body=%r",
         endpoint,
+        url,
         status_code,
         type(exc).__name__,
         response_body,
@@ -79,11 +80,11 @@ async def ask_ollama(settings: Settings, prompt: str) -> str:
             data = await _post_ollama(client, settings, "/api/chat", chat_payload)
             return _parse_chat_response(data)
         except (httpx.HTTPError, OllamaResponseError, KeyError, TypeError, AttributeError) as exc:
-            _log_ollama_error("/api/chat", exc)
+            _log_ollama_error("/api/chat", exc, f"{settings.ollama_base_url.rstrip('/')}/api/chat")
 
         try:
             data = await _post_ollama(client, settings, "/api/generate", generate_payload)
             return _parse_generate_response(data)
         except (httpx.HTTPError, OllamaResponseError, KeyError, TypeError, AttributeError) as exc:
-            _log_ollama_error("/api/generate", exc)
+            _log_ollama_error("/api/generate", exc, f"{settings.ollama_base_url.rstrip('/')}/api/generate")
             raise RuntimeError(OLLAMA_ERROR) from exc
