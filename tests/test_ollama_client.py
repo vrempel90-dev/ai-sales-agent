@@ -12,6 +12,11 @@ def make_settings() -> Settings:
         telegram_bot_token="token",
         ollama_base_url="http://ollama.test",
         ollama_model="llama-test",
+        ollama_num_ctx=512,
+        ollama_num_predict=300,
+        ollama_num_thread=1,
+        ollama_temperature=0.7,
+        ollama_top_p=0.9,
         database_path=":memory:",
         threads_access_token="",
         threads_user_id="",
@@ -49,11 +54,29 @@ def test_ask_ollama_falls_back_to_generate_after_chat_500(monkeypatch):
                 "model": "llama-test",
                 "messages": [{"role": "user", "content": "write post"}],
                 "stream": False,
+                "options": {
+                    "num_ctx": 512,
+                    "num_predict": 300,
+                    "num_thread": 1,
+                    "temperature": 0.7,
+                    "top_p": 0.9,
+                },
             },
         ),
         (
             "/api/generate",
-            {"model": "llama-test", "prompt": "write post", "stream": False},
+            {
+                "model": "llama-test",
+                "prompt": "write post",
+                "stream": False,
+                "options": {
+                    "num_ctx": 512,
+                    "num_predict": 300,
+                    "num_thread": 1,
+                    "temperature": 0.7,
+                    "top_p": 0.9,
+                },
+            },
         ),
     ]
 
