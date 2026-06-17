@@ -3,12 +3,9 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from app.agents import (
     AGENTS,
-    POST_TOPICS,
     agents_help,
-    build_posts_prompts,
     build_prompt,
     fallback_posts,
-    is_good_generated_post,
 )
 from app.config import Settings
 from app.keyboards import threads_post_keyboard
@@ -29,16 +26,10 @@ def arg_text(message: Message) -> str:
 
 
 async def generate_posts_response(settings: Settings, niche: str) -> str:
-    posts = []
+    # Для маленькой модели qwen2.5:0.5b /posts использует deterministic fallback,
+    # чтобы не зависать на Railway.
     fallback = fallback_posts()
-    for index, (topic, prompt) in enumerate(zip(POST_TOPICS, build_posts_prompts(niche)), 1):
-        try:
-            generated = await ask_ollama(settings, prompt)
-        except RuntimeError:
-            generated = ""
-        post = generated.strip() if is_good_generated_post(generated, topic) else fallback[index - 1]
-        posts.append(f"{index}. {post}")
-    return "\n\n".join(posts)
+    return "\n\n".join(f"{index}. {post}" for index, post in enumerate(fallback, 1))
 
 
 def get_command_name(command) -> str:
@@ -57,7 +48,7 @@ async def run_prompt(message: Message, settings: Settings, command: str, text: s
         await message.answer(EMPTY_HELP.format(example=AGENTS[command_name].example))
         return
     if command_name == "/posts":
-        await message.answer("Готовлю 10 постов через жёсткие шаблоны...")
+        await message.answer("Готовлю 10 постов...")
         await message.answer(await generate_posts_response(settings, text))
         return
     await message.answer("Готовлю ответ через Ollama...")
