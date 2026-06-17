@@ -87,4 +87,15 @@ def test_unsafe_generated_threads_post_uses_fallback():
     post = safe_threads_post("AI-администратор для клиники", generated)
 
     assert post != generated
-    assert "Клиника может терять заявки" in post
+    assert "Клиника получает сообщение" in post
+    assert "Напишите в Telegram слово ‘бот’" in post
+
+
+def test_threads_cta_uses_public_telegram_link(monkeypatch):
+    from app.agents import fallback_threads_post
+
+    monkeypatch.setenv("PUBLIC_TELEGRAM_BOT_LINK", "https://t.me/your_bot_username")
+
+    post = fallback_threads_post("AI-бот для ресторана")
+
+    assert "Напишите в Telegram слово ‘бот’ — покажу схему AI-бота под ваш бизнес: https://t.me/your_bot_username" in post

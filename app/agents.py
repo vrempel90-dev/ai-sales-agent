@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import os
 
 @dataclass(frozen=True)
 class Agent:
@@ -51,13 +52,24 @@ THREADS_DAY_TOPICS = (
     "частые вопросы клиентов",
 )
 
-CLINIC_THREADS_FALLBACK = (
-    "Клиника может терять заявки просто потому, что пациент написал вечером, "
-    "а администратор ответил только утром.\n\n"
+def threads_telegram_cta() -> str:
+    link = os.getenv("PUBLIC_TELEGRAM_BOT_LINK", "").strip()
+    base = "Напишите в Telegram слово ‘бот’ — покажу схему AI-бота под ваш бизнес"
+    if link:
+        return f"{base}: {link}"
+    return f"{base}."
+
+
+def _with_threads_cta(body: str) -> str:
+    return f"{body.strip()}\n\n{threads_telegram_cta()}"
+
+
+CLINIC_THREADS_FALLBACK_BODY = (
+    "Клиника получает сообщение вечером, а пациенту отвечает только утром. "
+    "За это время он может уйти в другую клинику.\n\n"
     "AI-администратор принимает обращение 24/7: уточняет жалобу, "
     "противопоказания, удобное время и передаёт заявку человеку или в CRM.\n\n"
-    "Это не заменяет врача. Это убирает хаос на первом этапе общения.\n\n"
-    "Могу показать схему такого бота для клиники."
+    "Это не заменяет врача. Это убирает хаос на первом этапе общения."
 )
 
 FALLBACK_POSTS = [
@@ -128,23 +140,23 @@ def fallback_threads_post(topic: str) -> str:
     # Small Ollama models can produce low-quality Threads drafts, so Threads generation is fallback-first.
     topic = _clean_topic(topic)
     if is_clinic_topic(topic):
-        return CLINIC_THREADS_FALLBACK
+        return _with_threads_cta(CLINIC_THREADS_FALLBACK_BODY)
 
-    return (
-        f"В теме «{topic}» бизнес чаще всего теряет заявки не из-за слабого продукта, "
+    body = (
+        f"В теме «{topic}» заявки часто теряются не из-за продукта, "
         "а из-за долгих ответов и ручного хаоса.\n\n"
         "Клиент ждёт, остывает и пишет конкурентам. Часть диалогов не доходит "
-        "до записи, оплаты или нормального follow-up.\n\n"
+        "до записи, оплаты или follow-up.\n\n"
         "AI-бот отвечает сразу, уточняет запрос, собирает контакт и передаёт заявку "
-        "человеку или в CRM.\n\n"
-        "Могу показать простую схему под ваш процесс."
+        "человеку или в CRM."
     )
+    return _with_threads_cta(body)
 
 
 def safe_threads_post(topic: str, generated_text: str | None = None) -> str:
     text = (generated_text or "").strip()
     if 300 <= len(text) <= 700 and not has_forbidden_post_phrase(text):
-        return text
+        return _with_threads_cta(text) if "слово ‘бот’" not in text and "слово 'бот'" not in text else text
     return fallback_threads_post(topic)
 
 
