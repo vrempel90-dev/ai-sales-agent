@@ -26,12 +26,39 @@ POST_TOPICS = [
 ]
 
 FORBIDDEN_POST_PHRASES = [
+    "менее жирящий",
+    "уникальный ai-бот",
+    "поддерживает и управляет клиентами",
+    "в вашем клинике",
+    "вашего кли",
     "бесконтактные технологии",
     "бесплатная услуга",
     "тема не указана",
     "гарантированная прибыль",
+    "конечно!",
+    "вот короткий threads-пост",
+    "таким образом",
+    "этот подход позволяет",
     "гарантируем прибыль",
 ]
+
+CLINIC_TOPIC_KEYWORDS = ("клиника", "клинику", "клинике", "клиники", "ai-администратор", "медицина", "медицин")
+THREADS_DAY_TOPICS = (
+    "заявки ночью",
+    "долгие ответы администратора",
+    "заявки в CRM",
+    "follow-up без хаоса",
+    "частые вопросы клиентов",
+)
+
+CLINIC_THREADS_FALLBACK = (
+    "Клиника может терять заявки просто потому, что пациент написал вечером, "
+    "а администратор ответил только утром.\n\n"
+    "AI-администратор принимает обращение 24/7: уточняет жалобу, "
+    "противопоказания, удобное время и передаёт заявку человеку или в CRM.\n\n"
+    "Это не заменяет врача. Это убирает хаос на первом этапе общения.\n\n"
+    "Могу показать схему такого бота для клиники."
+)
 
 FALLBACK_POSTS = [
     "Бизнес теряет заявки ночью: клиент пишет, а ответ приходит только утром. За это время он уже может выбрать конкурента. AI-бот принимает заявку 24/7, задаёт вопросы и передаёт контакт в работу. Хотите понять, где теряются заявки — разберём ваш путь клиента.",
@@ -80,6 +107,49 @@ def is_good_generated_post(text: str, topic: str) -> bool:
         return False
     return True
 
+
+
+def _clean_topic(topic: str) -> str:
+    normalized = " ".join((topic or "").strip().split())
+    return normalized or "AI-бот для бизнеса"
+
+
+def is_clinic_topic(topic: str) -> bool:
+    normalized = _clean_topic(topic).lower()
+    return any(keyword in normalized for keyword in CLINIC_TOPIC_KEYWORDS)
+
+
+def has_forbidden_post_phrase(text: str) -> bool:
+    normalized = " ".join((text or "").lower().split())
+    return any(phrase in normalized for phrase in FORBIDDEN_POST_PHRASES)
+
+
+def fallback_threads_post(topic: str) -> str:
+    # Small Ollama models can produce low-quality Threads drafts, so Threads generation is fallback-first.
+    topic = _clean_topic(topic)
+    if is_clinic_topic(topic):
+        return CLINIC_THREADS_FALLBACK
+
+    return (
+        f"В теме «{topic}» бизнес чаще всего теряет заявки не из-за слабого продукта, "
+        "а из-за долгих ответов и ручного хаоса.\n\n"
+        "Клиент ждёт, остывает и пишет конкурентам. Часть диалогов не доходит "
+        "до записи, оплаты или нормального follow-up.\n\n"
+        "AI-бот отвечает сразу, уточняет запрос, собирает контакт и передаёт заявку "
+        "человеку или в CRM.\n\n"
+        "Могу показать простую схему под ваш процесс."
+    )
+
+
+def safe_threads_post(topic: str, generated_text: str | None = None) -> str:
+    text = (generated_text or "").strip()
+    if 300 <= len(text) <= 700 and not has_forbidden_post_phrase(text):
+        return text
+    return fallback_threads_post(topic)
+
+
+def fallback_threads_day_posts() -> list[str]:
+    return [fallback_threads_post(topic) for topic in THREADS_DAY_TOPICS]
 
 def fallback_posts() -> list[str]:
     return FALLBACK_POSTS.copy()

@@ -6,6 +6,8 @@ from app.agents import (
     agents_help,
     build_prompt,
     fallback_posts,
+    fallback_threads_day_posts,
+    safe_threads_post,
 )
 from app.config import Settings
 from app.keyboards import threads_post_keyboard
@@ -95,24 +97,17 @@ async def show_post(message_or_cb, post: QueuedPost):
 
 @router.message(Command("threads_day"))
 async def threads_day(message: Message, settings: Settings):
-    prompt = "Сгенерируй 5 коротких Threads-постов на сегодня про AI-ботов для бизнеса. Раздели посты строкой --- . В каждом боль бизнеса и мягкий CTA."
-    try:
-        text = await ask_ollama(settings, prompt)
-        posts = [p.strip() for p in text.split("---") if p.strip()][:5]
-        if len(posts) < 5: posts = [p.strip() for p in text.split("\n\n") if p.strip()][:5]
-        queued = [post_queue.add_post(p) for p in posts]
-        await message.answer(f"Добавил в очередь: {len(queued)} постов.")
-        if queued: await show_post(message, queued[0])
-    except RuntimeError as e: await message.answer(str(e))
+    posts = fallback_threads_day_posts()[:5]
+    queued = [post_queue.add_post(p) for p in posts]
+    await message.answer(f"Добавил в очередь: {len(queued)} постов.")
+    if queued: await show_post(message, queued[0])
 
 @router.message(Command("threads_post"))
 async def threads_post(message: Message, settings: Settings):
     topic = arg_text(message)
     if not topic: await message.answer("Добавьте тему после команды. Пример:\n/threads_post AI-бот для салона красоты"); return
-    try:
-        text = await ask_ollama(settings, f"Сделай один короткий Threads-пост на тему: {topic}. Боль бизнеса, AI-бот, мягкий CTA. Не обещай гарантированную прибыль.")
-        await show_post(message, post_queue.add_post(text))
-    except RuntimeError as e: await message.answer(str(e))
+    text = safe_threads_post(topic)
+    await show_post(message, post_queue.add_post(text))
 
 @router.message(Command("threads_queue"))
 async def threads_queue(message: Message):
@@ -212,7 +207,7 @@ async def threads_rewrite(message: Message, settings: Settings):
     if not post: await message.answer("Пост не найден."); return
     try:
         new_text = await ask_ollama(settings, f"Переделай Threads-пост: короче, живее, без спама, с мягким CTA.\n\n{post.text}")
-        await show_post(message, post_queue.update_post(post.id, new_text))
+        await show_post(message, post_queue.update_post(post.id, safe_threads_post(post.text, new_text)))
     except RuntimeError as e: await message.answer(str(e))
 
 @router.message(Command("threads_next"))
@@ -232,7 +227,9 @@ async def threads_callback(callback: CallbackQuery, settings: Settings):
     elif action == "rewrite" and pid:
         post = post_queue.get_post(pid)
         if post:
-            try: await show_post(callback, post_queue.update_post(pid, await ask_ollama(settings, f"Переделай Threads-пост короче и живее:\n{post.text}")))
+            try:
+                new_text = await ask_ollama(settings, f"Переделай Threads-пост короче и живее:\n{post.text}")
+                await show_post(callback, post_queue.update_post(pid, safe_threads_post(post.text, new_text)))
             except RuntimeError as e: await callback.message.answer(str(e))
     elif action == "next":
         post = post_queue.get_next_draft(); await show_post(callback, post) if post else await callback.message.answer("Draft-постов нет.")
