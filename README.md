@@ -93,6 +93,7 @@ cp .env.example .env
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=llama3.2:3b
+PUBLIC_TELEGRAM_BOT_LINK=https://t.me/your_bot_username
 THREADS_ACCESS_TOKEN=your_threads_access_token
 THREADS_USER_ID=your_threads_user_id
 THREADS_API_BASE_URL=https://graph.threads.net
@@ -102,9 +103,19 @@ DATABASE_PATH=./ai_sales_agent.db
 
 `THREADS_AUTO_PUBLISH=false` — безопасный режим по умолчанию. Публикация только после подтверждения.
 
+`PUBLIC_TELEGRAM_BOT_LINK` добавляет ссылку на Telegram-бота в CTA для Threads-постов. Если переменная пустая, CTA останется без ссылки.
+
 ## Threads API
 
 Для публикации нужны `THREADS_ACCESS_TOKEN`, `THREADS_USER_ID`, `THREADS_API_BASE_URL`. Если они не настроены, бот будет только готовить посты и держать их в очереди.
+
+
+## Threads → Telegram lead flow
+
+- Threads публикует короткие посты про AI-ботов, заявки и автоматизацию.
+- CTA в конце Threads-поста ведёт клиента в Telegram-бота для мини-аудита.
+- Telegram Lead Conversation Agent задаёт вопросы и квалифицирует клиента по потребности, нише и готовности к следующему шагу.
+- Горячий лид отправляется владельцу через `OWNER_TELEGRAM_ID`.
 
 ## Запуск
 
@@ -136,6 +147,7 @@ OLLAMA_NUM_THREAD=1
 OLLAMA_TEMPERATURE=0.7
 OLLAMA_TOP_P=0.9
 DATABASE_PATH=/data/ai_sales_agent.db
+PUBLIC_TELEGRAM_BOT_LINK=https://t.me/your_bot_username
 THREADS_ACCESS_TOKEN=your_threads_access_token
 THREADS_USER_ID=your_threads_user_id
 THREADS_API_BASE_URL=https://graph.threads.net

@@ -18,6 +18,7 @@ def make_settings() -> Settings:
         ollama_temperature=0.7,
         ollama_top_p=0.9,
         database_path=":memory:",
+        public_telegram_bot_link="",
         threads_access_token="",
         threads_user_id="",
         threads_api_base_url="https://graph.threads.net",

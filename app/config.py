@@ -50,6 +50,7 @@ class Settings:
     ollama_temperature: float
     ollama_top_p: float
     database_path: str
+    public_telegram_bot_link: str
     threads_access_token: str
     threads_user_id: str
     threads_api_base_url: str
@@ -85,6 +86,7 @@ def get_settings() -> Settings:
         ollama_temperature=_float_env("OLLAMA_TEMPERATURE", 0.7),
         ollama_top_p=_float_env("OLLAMA_TOP_P", 0.9),
         database_path=os.getenv("DATABASE_PATH", "./ai_sales_agent.db").strip(),
+        public_telegram_bot_link=os.getenv("PUBLIC_TELEGRAM_BOT_LINK", "").strip(),
         threads_access_token=os.getenv("THREADS_ACCESS_TOKEN", "").strip(),
         threads_user_id=os.getenv("THREADS_USER_ID", "").strip(),
         threads_api_base_url=os.getenv("THREADS_API_BASE_URL", "https://graph.threads.net").strip(),
