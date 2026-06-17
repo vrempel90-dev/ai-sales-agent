@@ -1,7 +1,15 @@
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
-from app.agents import AGENTS, agents_help, build_prompt
+from app.agents import (
+    AGENTS,
+    POST_TOPICS,
+    agents_help,
+    build_posts_prompts,
+    build_prompt,
+    fallback_posts,
+    is_good_generated_post,
+)
 from app.config import Settings
 from app.keyboards import threads_post_keyboard
 from app.ollama_client import ask_ollama, build_ollama_options, test_ollama
@@ -20,6 +28,19 @@ def arg_text(message: Message) -> str:
     return parts[1].strip() if len(parts) > 1 else ""
 
 
+async def generate_posts_response(settings: Settings, niche: str) -> str:
+    posts = []
+    fallback = fallback_posts()
+    for index, (topic, prompt) in enumerate(zip(POST_TOPICS, build_posts_prompts(niche)), 1):
+        try:
+            generated = await ask_ollama(settings, prompt)
+        except RuntimeError:
+            generated = ""
+        post = generated.strip() if is_good_generated_post(generated, topic) else fallback[index - 1]
+        posts.append(f"{index}. {post}")
+    return "\n\n".join(posts)
+
+
 def get_command_name(command) -> str:
     command_name = command.command if hasattr(command, "command") else str(command)
     if not command_name.startswith("/"):
@@ -34,6 +55,10 @@ async def run_prompt(message: Message, settings: Settings, command: str, text: s
         return
     if not text and command_name not in OPTIONAL_TEXT_COMMANDS:
         await message.answer(EMPTY_HELP.format(example=AGENTS[command_name].example))
+        return
+    if command_name == "/posts":
+        await message.answer("Готовлю 10 постов через жёсткие шаблоны...")
+        await message.answer(await generate_posts_response(settings, text))
         return
     await message.answer("Готовлю ответ через Ollama...")
     try:
