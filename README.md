@@ -130,6 +130,11 @@ python -m app.main
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 OLLAMA_BASE_URL=http://ollama.railway.internal:11434
 OLLAMA_MODEL=llama3.2:3b
+OLLAMA_NUM_CTX=512
+OLLAMA_NUM_PREDICT=300
+OLLAMA_NUM_THREAD=1
+OLLAMA_TEMPERATURE=0.7
+OLLAMA_TOP_P=0.9
 DATABASE_PATH=/data/ai_sales_agent.db
 THREADS_ACCESS_TOKEN=your_threads_access_token
 THREADS_USER_ID=your_threads_user_id
@@ -184,6 +189,29 @@ llama3.2:3b
 - `/threads_queue`
 
 `/health` показывает, что бот работает, модель Ollama, URL Ollama, статус Threads API, включён ли автопостинг, часы публикаций, дневной лимит, количество опубликованных сегодня и количество draft-постов.
+
+### Railway Ollama stability
+
+Если Ollama на Railway падает с:
+
+```text
+llama-server process has terminated: signal: segmentation fault
+```
+
+то используйте лёгкие настройки:
+
+```env
+OLLAMA_MODEL=qwen2.5:0.5b
+OLLAMA_NUM_CTX=512
+OLLAMA_NUM_PREDICT=300
+OLLAMA_NUM_THREAD=1
+```
+
+И проверьте командой в Telegram:
+
+```text
+/ollama_test
+```
 
 ### 6. Автопостинг Threads
 

@@ -4,7 +4,7 @@ from aiogram.types import Message, CallbackQuery
 from app.agents import AGENTS, agents_help, build_prompt
 from app.config import Settings
 from app.keyboards import threads_post_keyboard
-from app.ollama_client import ask_ollama
+from app.ollama_client import ask_ollama, build_ollama_options, test_ollama
 from app.post_queue import post_queue, QueuedPost
 from app.threads_client import ThreadsClient
 from datetime import datetime, timezone
@@ -116,7 +116,22 @@ async def health(message: Message, settings: Settings):
         f"Часы публикаций: {','.join(map(str, settings.threads_auto_post_hours))}\n"
         f"Дневной лимит: {settings.threads_daily_post_limit}\n"
         f"Опубликовано сегодня: {post_queue.get_published_count_for_date(today)}\n"
-        f"Draft-постов: {post_queue.get_draft_count()}"
+        f"Draft-постов: {post_queue.get_draft_count()}\n"
+        "/ollama_test — проверить связь с Ollama"
+    )
+
+@router.message(Command("ollama_test"))
+async def ollama_test(message: Message, settings: Settings):
+    ok, result = await test_ollama(settings)
+    options = build_ollama_options(settings)
+    status = "работает" if ok else "ошибка"
+    details = f"ответ: {result}" if ok else f"ошибка: {result}"
+    await message.answer(
+        f"OLLAMA_BASE_URL: {settings.ollama_base_url}\n"
+        f"OLLAMA_MODEL: {settings.ollama_model}\n"
+        f"options: {options}\n"
+        f"статус: {status}\n"
+        f"{details}"
     )
 
 @router.message(Command("autopost_status"))

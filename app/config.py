@@ -16,6 +16,13 @@ def _int_env(name: str, default: int) -> int:
         return default
 
 
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)))
+    except ValueError:
+        return default
+
+
 def _hours_env(name: str, default: str = "10,14,18") -> list[int]:
     raw = os.getenv(name, default)
     hours: list[int] = []
@@ -37,6 +44,11 @@ class Settings:
     telegram_bot_token: str
     ollama_base_url: str
     ollama_model: str
+    ollama_num_ctx: int
+    ollama_num_predict: int
+    ollama_num_thread: int
+    ollama_temperature: float
+    ollama_top_p: float
     database_path: str
     threads_access_token: str
     threads_user_id: str
@@ -67,6 +79,11 @@ def get_settings() -> Settings:
         telegram_bot_token=token,
         ollama_base_url=ollama_base_url,
         ollama_model=os.getenv("OLLAMA_MODEL", "llama3.2:3b").strip(),
+        ollama_num_ctx=_int_env("OLLAMA_NUM_CTX", 512),
+        ollama_num_predict=_int_env("OLLAMA_NUM_PREDICT", 300),
+        ollama_num_thread=_int_env("OLLAMA_NUM_THREAD", 1),
+        ollama_temperature=_float_env("OLLAMA_TEMPERATURE", 0.7),
+        ollama_top_p=_float_env("OLLAMA_TOP_P", 0.9),
         database_path=os.getenv("DATABASE_PATH", "./ai_sales_agent.db").strip(),
         threads_access_token=os.getenv("THREADS_ACCESS_TOKEN", "").strip(),
         threads_user_id=os.getenv("THREADS_USER_ID", "").strip(),

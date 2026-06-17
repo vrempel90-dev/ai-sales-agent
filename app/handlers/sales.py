@@ -34,6 +34,7 @@ Threads:
 /threads_queue — очередь постов
 /threads_publish id_поста — опубликовать пост после подтверждения
 /health — статус Railway/Ollama/Threads
+/ollama_test — проверить связь с Ollama
 /autopost_status — статус автопостинга"""
 
 @router.message(CommandStart())
