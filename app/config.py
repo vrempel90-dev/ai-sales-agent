@@ -60,6 +60,8 @@ class Settings:
     threads_auto_post_timezone: str
     threads_auto_generate_if_queue_empty: bool
     threads_daily_post_limit: int
+    owner_telegram_id: str
+    lead_auto_reply_enabled: bool
 
     @property
     def threads_api_configured(self) -> bool:
@@ -95,4 +97,6 @@ def get_settings() -> Settings:
         threads_auto_post_timezone=os.getenv("THREADS_AUTO_POST_TIMEZONE", "Asia/Almaty").strip(),
         threads_auto_generate_if_queue_empty=_bool_env("THREADS_AUTO_GENERATE_IF_QUEUE_EMPTY", "true"),
         threads_daily_post_limit=_int_env("THREADS_DAILY_POST_LIMIT", 3),
+        owner_telegram_id=os.getenv("OWNER_TELEGRAM_ID", "").strip(),
+        lead_auto_reply_enabled=_bool_env("LEAD_AUTO_REPLY_ENABLED", "true"),
     )

@@ -4,6 +4,7 @@ from aiogram import Bot, Dispatcher
 from app.config import get_settings
 from app.handlers import agents, sales
 from app.post_queue import PostQueue
+from app.lead_conversation import LeadConversationStore, init_lead_mode
 from app.threads_scheduler import run_threads_scheduler
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -14,6 +15,8 @@ async def main():
     settings = get_settings()
     queue = PostQueue(settings.database_path)
     agents.post_queue = queue
+    sales.lead_store = LeadConversationStore(settings.database_path)
+    init_lead_mode(settings.lead_auto_reply_enabled)
 
     logger.info("bot started")
     logger.info("Ollama base URL: %s", settings.ollama_base_url)
@@ -21,6 +24,7 @@ async def main():
     logger.info("database path: %s", settings.database_path)
     logger.info("Threads API configured: %s", "yes" if settings.threads_api_configured else "no")
     logger.info("auto posting enabled: %s", "yes" if settings.threads_auto_posting_enabled else "no")
+    logger.info("lead auto reply enabled: %s", "yes" if settings.lead_auto_reply_enabled else "no")
 
     bot = Bot(settings.telegram_bot_token)
     dp = Dispatcher()

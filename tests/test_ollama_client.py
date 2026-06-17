@@ -28,6 +28,8 @@ def make_settings() -> Settings:
         threads_auto_post_timezone="Asia/Almaty",
         threads_auto_generate_if_queue_empty=True,
         threads_daily_post_limit=3,
+        owner_telegram_id="",
+        lead_auto_reply_enabled=True,
     )
 
 

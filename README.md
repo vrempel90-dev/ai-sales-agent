@@ -6,6 +6,7 @@ Telegram-бот как AI-команда для продажи и разрабо
 
 - 25 AI-агентов для контента, продаж, аудита, КП, разработки, промтов, тестов и ведения проекта.
 - Threads Publishing Agent: готовит посты, хранит SQLite-очередь и публикует через Threads API только после подтверждения пользователя.
+- Lead Conversation Agent: отвечает потенциальным клиентам на обычные Telegram-сообщения без `/`, уточняет бизнес, боли и канал заявок, а при горячем интересе уведомляет владельца.
 - Без спама: бот не пишет людям сам, не лайкает, не подписывается, не обходит лимиты и не отправляет автолички.
 
 ## Команды
@@ -42,6 +43,15 @@ Telegram-бот как AI-команда для продажи и разрабо
 23. `/prompt описание задачи` — system prompt.
 24. `/tests описание бота` — тестовые сценарии.
 25. `/pm описание проекта` — план работ.
+
+### Lead Conversation Agent
+
+- Обычное сообщение без `/` считается входящим сообщением потенциального клиента.
+- Агент отвечает мягко: не продаёт в лоб, не обещает гарантированную прибыль, не называет цену без вводных и предлагает мини-аудит.
+- Если клиент явно горячий (`хочу заказать`, `когда можем созвониться`, `давайте делать`, `нужен бот`, `готов обсудить`), бот отвечает клиенту и отправляет owner-уведомление в Telegram, если задан `OWNER_TELEGRAM_ID`.
+- `/lead_mode_status` — показать, включён ли автоответ потенциальным клиентам.
+- `/lead_mode_on` — включить автоответ на обычные сообщения.
+- `/lead_mode_off` — выключить автоответ на обычные сообщения.
 
 ### Threads Publishing Agent
 
@@ -98,6 +108,8 @@ THREADS_USER_ID=your_threads_user_id
 THREADS_API_BASE_URL=https://graph.threads.net
 THREADS_AUTO_PUBLISH=false
 DATABASE_PATH=./ai_sales_agent.db
+LEAD_AUTO_REPLY_ENABLED=true
+OWNER_TELEGRAM_ID=your_telegram_id
 ```
 
 `THREADS_AUTO_PUBLISH=false` — безопасный режим по умолчанию. Публикация только после подтверждения.
@@ -145,6 +157,8 @@ THREADS_AUTO_POST_HOURS=10,14,18
 THREADS_AUTO_POST_TIMEZONE=Asia/Almaty
 THREADS_AUTO_GENERATE_IF_QUEUE_EMPTY=true
 THREADS_DAILY_POST_LIMIT=3
+LEAD_AUTO_REPLY_ENABLED=true
+OWNER_TELEGRAM_ID=your_telegram_id
 ```
 
 `THREADS_ACCESS_TOKEN` и `THREADS_USER_ID` не обязательны для генерации и очереди. Если их нет, публикация в Threads будет отключена, но бот сможет готовить посты и хранить их в SQLite.
@@ -187,6 +201,7 @@ llama3.2:3b
 - `/day`
 - `/threads_day`
 - `/threads_queue`
+- `/lead_mode_status`
 
 `/health` показывает, что бот работает, модель Ollama, URL Ollama, статус Threads API, включён ли автопостинг, часы публикаций, дневной лимит, количество опубликованных сегодня и количество draft-постов.
 
