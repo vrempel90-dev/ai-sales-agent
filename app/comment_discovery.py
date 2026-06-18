@@ -59,13 +59,20 @@ class CommentDiscoveryService:
 
     @staticmethod
     def quality_passes(comment: str) -> bool:
+        return CommentDiscoveryService.comment_quality_reason(comment) == "ok"
+
+    @staticmethod
+    def comment_quality_reason(comment: str) -> str:
         lowered = (comment or "").lower()
-        return (
-            40 <= len(comment) <= 300
-            and not any(marker in lowered for marker in AGGRESSIVE)
-            and "http://" not in lowered
-            and "https://" not in lowered
-        )
+        if not 40 <= len(comment) <= 300:
+            return "недопустимая длина комментария"
+        if "wa.me/" in lowered or "whatsapp.com/" in lowered:
+            return "обнаружена WhatsApp-ссылка"
+        if "http://" in lowered or "https://" in lowered:
+            return "обнаружена ссылка"
+        if any(marker in lowered for marker in AGGRESSIVE):
+            return "обнаружена агрессивная продажа"
+        return "ok"
 
     def _duplicate(self, comment: str) -> bool:
         normalized = re.sub(r"\W+", " ", comment.lower()).strip()[:180]
@@ -77,16 +84,30 @@ class CommentDiscoveryService:
         )
 
     def add_source(self, text: str, settings: Settings) -> tuple[int, str]:
+        added, reasons = self.enqueue_generated(text, settings)
+        return len(added), "ok" if added else "; ".join(reasons)
+
+    def enqueue_generated(
+        self, text: str, settings: Settings
+    ) -> tuple[list[CommentDraft], list[str]]:
         self.found_count += 1
         relevance, risk = self.score_source(text)
         if any(term in text.lower() for term in FORBIDDEN_TOPICS):
-            return 0, "запрещённая или высокорисковая тема"
+            return [], ["запрещённая или высокорисковая тема"]
         if relevance < settings.comment_min_relevance_score:
-            return 0, f"relevance {relevance} ниже порога {settings.comment_min_relevance_score}"
+            return [], [f"relevance {relevance} ниже порога {settings.comment_min_relevance_score}"]
+        if risk > 20:
+            return [], [f"risk {risk} выше допустимого значения 20"]
         comments = self.generate_comments(text)
-        added = 0
+        added: list[CommentDraft] = []
+        reasons: list[str] = []
         for comment in comments:
-            if not self.quality_passes(comment) or self._duplicate(comment):
+            quality_reason = self.comment_quality_reason(comment)
+            if quality_reason != "ok":
+                reasons.append(quality_reason)
+                continue
+            if self._duplicate(comment):
+                reasons.append("дубликат комментария")
                 continue
             item = CommentDraft(
                 id=str(len(self.items) + 1),
@@ -99,9 +120,12 @@ class CommentDiscoveryService:
                 created_at=datetime.now(timezone.utc).isoformat(),
             )
             self.items.append(item)
-            added += 1
-        self.last_action = f"обработан источник, добавлено draft: {added}"
-        return added, "ok" if added else "нет новых уникальных комментариев"
+            added.append(item)
+        if not comments:
+            reasons.append("не удалось создать комментарии по теме")
+        self.last_action = f"обработан источник, добавлено draft: {len(added)}"
+        self.last_error = "" if added else "; ".join(reasons)
+        return added, reasons or ["нет новых уникальных комментариев"]
 
     def drafts(self) -> list[CommentDraft]:
         return [item for item in self.items if item.status == "draft"]

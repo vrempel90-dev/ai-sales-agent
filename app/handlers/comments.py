@@ -44,12 +44,18 @@ async def comment_find(message: Message, settings: Settings):
 
 
 @router.message(Command("comment_generate"))
-async def comment_generate(message: Message):
-    comments = comment_discovery.generate_comments(arg_text(message))
-    if not comments:
-        await message.answer("Тема нерелевантна или рискованна: безопасные комментарии не созданы.")
+async def comment_generate(message: Message, settings: Settings):
+    drafts, reasons = comment_discovery.enqueue_generated(arg_text(message), settings)
+    if not drafts:
+        await message.answer(
+            "Не добавил комментарии в очередь: варианты не прошли safety/quality check.\n"
+            f"Причина: {'; '.join(dict.fromkeys(reasons))}"
+        )
         return
-    await message.answer("\n\n".join(f"{i}. {text}" for i, text in enumerate(comments, 1)))
+    variants = "\n\n".join(f"{i}. {item.comment}" for i, item in enumerate(drafts, 1))
+    await message.answer(
+        f"Сгенерировано и добавлено в очередь: {len(drafts)} draft-комментариев.\n\n{variants}"
+    )
 
 
 @router.message(Command("comment_queue"))
@@ -72,9 +78,10 @@ async def comment_next(message: Message):
         await message.answer("Draft-комментариев нет.")
         return
     await message.answer(
-        f"Комментарий #{item.id}\nИсточник: {item.summary}\n\n{item.comment}\n\n"
-        f"✅ /comment_publish {item.id}\n❌ /comment_skip {item.id}\n"
-        f"🔁 /comment_generate {item.source}"
+        f"Комментарий #{item.id}\nИсточник: {item.summary}\n"
+        f"relevance score: {item.relevance_score}\nrisk score: {item.risk_score}\n\n"
+        f"{item.comment}\n\n"
+        f"Для публикации используйте /comment_publish {item.id} или опубликуйте вручную."
     )
 
 
