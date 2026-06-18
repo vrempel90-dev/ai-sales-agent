@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 from app.comment_discovery import CommentDiscoveryService
-from app.handlers.agents import autopilot_on, build_growth_report, profile_analysis
+from app.handlers.agents import autopilot_on, build_growth_report, growth_plan, positioning, profile_analysis
 from app.handlers.comments import comment_generate, comment_next, comment_queue
 from app.handlers.sales import START_TEXT
 from app.main import BOT_COMMANDS
@@ -51,6 +51,23 @@ def test_growth_report_has_comment_block(tmp_path):
     assert "Safe Comment Discovery" in report
     assert "Draft в очереди" in report
     assert "Threads API errors" in report
+    assert "Marketing quality:" in report
+    assert "посты сегодня ведут к личке:" in report
+
+
+def test_growth_plan_and_positioning_have_senior_marketing_structure():
+    plan_message, plan_answers = _message(text="/growth_plan")
+    asyncio.run(growth_plan(plan_message))
+    plan = plan_answers[0]
+    assert "Главный маркетинговый фокус дня" in plan
+    assert "Главный оффер дня" in plan
+    assert "Какие CTA используем" in plan
+
+    positioning_message, positioning_answers = _message(text="/positioning")
+    asyncio.run(positioning(positioning_message))
+    text = positioning_answers[0]
+    assert "Мой главный угол" in text
+    assert "Напишите «аудит»" in text
 
 
 def test_comment_generation_is_safe_and_relevant(tmp_path):

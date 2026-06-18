@@ -19,6 +19,16 @@ def test_price_question_does_not_name_price():
     assert not any(amount in reply.text for amount in ("50 000", "100 000", "₸", "$"))
 
 
+def test_salon_dm_reply_uses_sales_strategy_and_qualification():
+    reply = build_lead_reply("Хочу AI-бота для салона")
+    assert reply.stage == "business_described"
+    assert "для салона это как раз сильный кейс" in reply.text
+    assert "админ долго отвечает" in reply.text
+    assert "AI-бот закрывает первый этап" in reply.text
+    assert "первом ответе или на записи клиентов?" in reply.text
+    assert not any(amount in reply.text for amount in ("₸", "$", "50 000"))
+
+
 def test_site_request_returns_focus_to_ai_bots():
     reply = build_lead_reply("Вы можете сделать сайт или лендинг?")
     assert reply.stage == "irrelevant_site_request"

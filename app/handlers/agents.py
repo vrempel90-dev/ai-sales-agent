@@ -21,6 +21,8 @@ from app.threads_client import ThreadsClient
 from app.threads_growth import (
     add_strong_unique_post,
     best_publishable_post,
+    has_strong_cta,
+    is_senior_marketing_post,
     refill_growth_queue,
     viral_fallback,
 )
@@ -247,6 +249,8 @@ async def growth_status(message: Message, settings: Settings):
 def build_growth_report(settings: Settings) -> str:
     today = datetime.now(timezone.utc).date()
     published = [p for p in post_queue.list_by_status("published") if (p.published_at or "").startswith(today.isoformat())]
+    posts_lead_to_dm = bool(published) and all(has_strong_cta(p.text) for p in published)
+    weak_positioning_risk = bool(published) and not all(is_senior_marketing_post(p.text) for p in published)
     return (
         "AI Growth Manager — growth report\n"
         f"Опубликовано сегодня: {len(published)}\n"
@@ -259,6 +263,14 @@ def build_growth_report(settings: Settings) -> str:
         f"WhatsApp handoff: {'настроен' if settings.whatsapp_contact_link or settings.whatsapp_phone else 'не настроен'}\n"
         f"Last autopilot action: {growth_runtime.last_action}\n"
         f"Last autopilot error: {growth_runtime.last_error or 'нет'}\n\n"
+        "Marketing quality:\n"
+        "• позиционирование: AI-боты / заявки / CRM\n"
+        "• оффер дня: найду точки потери заявок и покажу, какой AI-бот их закроет\n"
+        "• основной pain angle: медленный первый ответ сжигает оплаченную заявку\n"
+        "• CTA дня: напишите «аудит» в личку\n"
+        f"• посты сегодня ведут к личке: {'yes' if posts_lead_to_dm else 'no'}\n"
+        f"• есть риск слабого позиционирования: {'yes' if weak_positioning_risk else 'no'}\n"
+        "• рекомендации на завтра: показать хаос Direct/WhatsApp/Telegram и роль AI-бота до CRM\n\n"
         "Safe Comment Discovery:\n"
         f"Найдено веток/источников: {comment_discovery.found_count}\n"
         f"Comment drafts создано: {len(comment_discovery.items)}\n"
@@ -336,16 +348,23 @@ async def growth_refill(message: Message, settings: Settings):
 @router.message(Command("growth_plan"))
 async def growth_plan(message: Message):
     await message.answer(
-        "План автопилота Threads на сегодня:\n\n"
-        "1. Главная цель дня: показать стоимость потерянного первого ответа.\n"
-        "2. Какие темы бот будет публиковать: заявки ночью, хаос в Direct, передача в CRM.\n"
-        "3. Какие боли будут использоваться: медленный ответ, забытый follow-up, потерянная запись.\n"
-        "4. Какой CTA дня: «аудит» в личку.\n"
-        "5. Какие ниши в фокусе: клиники, салоны, услуги, онлайн-школы.\n"
-        "6. Что уже опубликовано: смотрите /growth_report.\n"
-        "7. Что стоит в очереди: смотрите /threads_queue.\n"
-        "8. Комментарии/ветки: безопасные drafts в /comment_queue.\n"
-        "9. Что проверить вечером: отчёт, ошибки API, очередь и горячие лиды."
+        "План роста Threads на сегодня от AI Growth Manager:\n\n"
+        "1. Главный маркетинговый фокус дня:\n"
+        "Сегодня давим на боль: бизнес теряет не из-за плохой рекламы, а из-за медленного первого ответа.\n\n"
+        "2. Главный оффер дня:\n"
+        "Найду, где у вас теряются заявки, и покажу, какой AI-бот это закроет.\n\n"
+        "3. 3 угла контента:\n"
+        "• медленный админ = потерянная заявка\n"
+        "• Direct/WhatsApp/Telegram = хаос без системы\n"
+        "• AI-бот = первый фильтр до менеджера\n\n"
+        "4. Что публикуем первым:\n"
+        "Пост о заявке, оплаченной рекламой и потерянной до первого ответа.\n\n"
+        "5. Какие CTA используем:\n"
+        "«Напишите “аудит”, “бот” или “разбор” в личку».\n\n"
+        "6. Какие темы не трогаем:\n"
+        "сайты, лендинги, SEO, дизайн, обычный SMM.\n\n"
+        "7. Что должно случиться в личке:\n"
+        "человек пишет «аудит», «бот» или «разбор», после чего Sales DM Agent квалифицирует боль."
     )
 
 
