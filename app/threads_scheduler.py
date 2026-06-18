@@ -5,8 +5,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.config import Settings
 from app.content_safety import validate_threads_post
-from app.agents import fallback_threads_day_posts
 from app.post_queue import PostQueue, QueuedPost
+from app.threads_growth import (
+    add_strong_unique_post,
+    best_publishable_post,
+    refill_growth_queue,
+    viral_fallback,
+)
 from app.threads_client import ThreadsClient, THREADS_NOT_CONFIGURED
 
 logger = logging.getLogger(__name__)
@@ -37,19 +42,28 @@ async def generate_post_if_needed(settings: Settings, queue: PostQueue, schedule
     if not settings.threads_auto_generate_if_queue_empty:
         return None
     # Autogeneration is template-first so publishing remains useful when Ollama is unavailable.
-    text = fallback_threads_day_posts()[scheduled_hour % len(fallback_threads_day_posts())]
+    text = viral_fallback(scheduled_hour)
     is_valid, reason = validate_threads_post(text)
     if not is_valid:
         logger.warning("Generated Threads post failed safety check: %s", reason)
         return None
 
-    post = queue.add_post(text, source="auto-generated", scheduled_hour=scheduled_hour)
+    post = add_strong_unique_post(
+        queue, text, source="auto-generated-viral",
+        fallback_index=scheduled_hour, scheduled_hour=scheduled_hour,
+    )
+    if post is None:
+        logger.info("Threads scheduler: no unique viral post available")
+        return None
     logger.info("Generated Threads post #%s for scheduled hour %s", post.id, scheduled_hour)
     return post
 
 
 async def publish_one_scheduled_post(settings: Settings, queue: PostQueue, scheduled_hour: int) -> bool:
-    post = queue.get_next_publishable() or queue.get_next_draft()
+    if not settings.threads_auto_publish:
+        logger.info("Threads scheduler: THREADS_AUTO_PUBLISH is disabled")
+        return False
+    post = best_publishable_post(queue)
     if post is None:
         post = await generate_post_if_needed(settings, queue, scheduled_hour)
     if post is None:
@@ -74,6 +88,8 @@ async def publish_one_scheduled_post(settings: Settings, queue: PostQueue, sched
 
     queue.mark_published(post.id)
     logger.info("Threads scheduler published post #%s. API response: %s", post.id, result)
+    if settings.threads_growth_mode_enabled:
+        refill_growth_queue(queue, settings.threads_min_queue_size, source="growth-after-publish")
     return True
 
 
@@ -84,6 +100,8 @@ async def run_threads_scheduler(settings: Settings, queue: PostQueue) -> None:
 
     tz = _timezone(settings.threads_auto_post_timezone)
     posted_hours: set[tuple[str, int]] = set()
+    if settings.threads_growth_mode_enabled:
+        refill_growth_queue(queue, settings.threads_min_queue_size, source="growth-startup")
     logger.info(
         "Auto Threads Posting: enabled; hours=%s timezone=%s daily_limit=%s",
         settings.threads_auto_post_hours,
@@ -97,6 +115,8 @@ async def run_threads_scheduler(settings: Settings, queue: PostQueue) -> None:
             today_key = now.date().isoformat()
             current_hour = now.hour
             posted_hours = {item for item in posted_hours if item[0] == today_key}
+            if settings.threads_growth_mode_enabled and queue.get_draft_count() < settings.threads_min_queue_size:
+                refill_growth_queue(queue, settings.threads_min_queue_size)
 
             if current_hour in settings.threads_auto_post_hours:
                 hour_key = (today_key, current_hour)

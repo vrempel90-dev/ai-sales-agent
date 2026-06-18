@@ -86,6 +86,29 @@ class PostQueue:
             rows = conn.execute("SELECT * FROM threads_posts WHERE status = ? ORDER BY created_at ASC", (status,)).fetchall()
         return [self._row_to_post(row) for row in rows]
 
+    def list_publishable(self):
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM threads_posts WHERE status IN ('approved', 'draft') ORDER BY created_at ASC"
+            ).fetchall()
+        return [self._row_to_post(row) for row in rows]
+
+    def list_active_and_published_today(self):
+        today = datetime.now(timezone.utc).date()
+        start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc).isoformat()
+        end = datetime.combine(today, datetime.max.time(), tzinfo=timezone.utc).isoformat()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM threads_posts
+                WHERE status IN ('draft', 'approved')
+                   OR (status = 'published' AND published_at BETWEEN ? AND ?)
+                ORDER BY created_at ASC
+                """,
+                (start, end),
+            ).fetchall()
+        return [self._row_to_post(row) for row in rows]
+
     def _set_status(self, id, status: str, *, published: bool = False, reason: str | None = None):
         if status not in VALID_STATUSES:
             raise ValueError(f"Unknown post status: {status}")

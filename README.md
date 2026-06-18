@@ -73,6 +73,28 @@ Telegram-бот как AI-команда для продажи и разрабо
 
 У draft-поста есть inline-кнопки: опубликовать, переделать, пропустить, следующий.
 
+## Threads Growth Agent
+
+Threads Growth Agent включается через `THREADS_GROWTH_MODE_ENABLED=true` и сам поддерживает
+не менее `THREADS_MIN_QUEUE_SIZE` сильных viral draft-постов. Если очередь пуста и включён
+`THREADS_AUTO_GENERATE_IF_QUEUE_EMPTY=true`, scheduler создаёт проверенный viral post без
+зависимости от Ollama. При `THREADS_VIRAL_ONLY=true` команды `/threads_day` и
+`/threads_post` также используют только premium viral templates.
+
+Перед сохранением пост проходит safety-проверку и `score_thread_post`: оцениваются хук,
+боль владельца, последствие, AI-бот как решение, канал обработки заявки и сильный CTA.
+Слабый или нерелевантный текст заменяется viral fallback. Автопостинг выбирает лучший
+доступный draft по score, а duplicate guard сравнивает нормализованный текст и первые
+160 символов с очередью и публикациями за сегодня.
+
+- `/growth_status` — настройки Growth Agent, размер очереди, публикации и расписание.
+- `/growth_refill` — вручную дополнить очередь до заданного минимума уникальными постами.
+- `/growth_plan` — темы постов, комментариев, ответов и оффер дня.
+- `/engagement_tasks` — ручной чек-лист активности для роста охвата.
+
+Growth Agent не обещает гарантированные просмотры и не использует автоспам, автолайки,
+автофолловинг, автокомментарии или серые методы. Engagement-задачи выполняются вручную.
+
 ## Viral Threads Agent
 
 Viral Threads Agent помогает получать больше просмотров в Threads и привлекать владельцев
@@ -203,6 +225,9 @@ THREADS_AUTO_POST_HOURS=10,14,18
 THREADS_AUTO_POST_TIMEZONE=Asia/Almaty
 THREADS_AUTO_GENERATE_IF_QUEUE_EMPTY=true
 THREADS_DAILY_POST_LIMIT=3
+THREADS_GROWTH_MODE_ENABLED=true
+THREADS_MIN_QUEUE_SIZE=7
+THREADS_VIRAL_ONLY=true
 ```
 
 `THREADS_ACCESS_TOKEN` и `THREADS_USER_ID` не обязательны для генерации и очереди. Если их нет, публикация в Threads будет отключена, но бот сможет готовить посты и хранить их в SQLite.

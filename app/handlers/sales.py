@@ -37,6 +37,10 @@ Threads:
 /viral_threads_day — 7 сильных Threads draft-постов
 /viral_post ниша — сильный Threads-пост под нишу
 /positioning — текущее позиционирование
+/growth_status — статус Threads Growth Agent
+/growth_refill — пополнить очередь сильными постами
+/growth_plan — план раскачки на день
+/engagement_tasks — ручные задания для роста охвата
 /threads_queue — очередь постов
 /threads_publish id_поста — опубликовать пост после подтверждения
 /health — статус Railway/Ollama/Threads

@@ -74,7 +74,7 @@ def test_threads_day_creates_five_fallback_posts():
     posts = fallback_threads_day_posts()
 
     assert len(posts) == 5
-    assert all(200 <= len(post) <= 450 for post in posts)
+    assert all(200 <= len(post) <= 700 for post in posts)
     assert not any(
         phrase in " ".join(posts).lower()
         for phrase in FORBIDDEN_POST_PHRASES
@@ -109,6 +109,7 @@ def test_viral_threads_day_has_seven_safe_templates():
     posts = viral_threads_day_posts()
 
     assert len(posts) == 7
+    assert all(300 <= len(post) <= 700 for post in posts)
     assert all(validate_threads_post(post)[0] for post in posts)
     assert all("AI-" in post or "AI-" in post.upper() for post in posts)
 

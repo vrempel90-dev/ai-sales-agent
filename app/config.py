@@ -61,6 +61,9 @@ class Settings:
     threads_auto_post_timezone: str
     threads_auto_generate_if_queue_empty: bool
     threads_daily_post_limit: int
+    threads_growth_mode_enabled: bool = False
+    threads_min_queue_size: int = 7
+    threads_viral_only: bool = False
     owner_telegram_id: int | None = None
     lead_auto_reply_enabled: bool = True
     whatsapp_contact_link: str = ""
@@ -101,6 +104,9 @@ def get_settings() -> Settings:
         threads_auto_post_timezone=os.getenv("THREADS_AUTO_POST_TIMEZONE", "Asia/Almaty").strip(),
         threads_auto_generate_if_queue_empty=_bool_env("THREADS_AUTO_GENERATE_IF_QUEUE_EMPTY", "true"),
         threads_daily_post_limit=_int_env("THREADS_DAILY_POST_LIMIT", 3),
+        threads_growth_mode_enabled=_bool_env("THREADS_GROWTH_MODE_ENABLED", "false"),
+        threads_min_queue_size=max(1, _int_env("THREADS_MIN_QUEUE_SIZE", 7)),
+        threads_viral_only=_bool_env("THREADS_VIRAL_ONLY", "false"),
         owner_telegram_id=(
             _int_env("OWNER_TELEGRAM_ID", 0)
             if os.getenv("OWNER_TELEGRAM_ID", "").strip()
