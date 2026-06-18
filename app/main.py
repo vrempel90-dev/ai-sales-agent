@@ -24,6 +24,8 @@ BOT_COMMANDS = [
     BotCommand(command="comment_discovery_status", description="Статус комментариев"),
     BotCommand(command="comment_queue", description="Очередь комментариев"),
     BotCommand(command="health", description="Статус системы"),
+    BotCommand(command="sales_status", description="Статус Sales Closing Agent"),
+    BotCommand(command="sales_preview", description="Предпросмотр ответа лиду"),
     BotCommand(command="whatsapp_status", description="Настройки WhatsApp"),
     BotCommand(command="positioning", description="Позиционирование"),
 ]

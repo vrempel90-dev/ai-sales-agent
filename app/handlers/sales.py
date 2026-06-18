@@ -2,7 +2,7 @@ from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.types import Message
 from app.config import Settings
-from app.lead_agent import build_lead_reply, hot_lead_notification
+from app.lead_agent import HOT_LEAD_THRESHOLD, PRICE_RANGES, build_lead_reply, hot_lead_notification
 from app.lead_store import LeadConversationService
 
 router = Router()
@@ -36,7 +36,7 @@ Profile Intelligence:
 /profile_scan текст · /profile_strategy текст · /profile_posts текст
 
 Sales DM и System:
-/dm_preview сообщение · /whatsapp_status · /lead_mode_status
+/dm_preview сообщение · /sales_preview текст · /sales_status · /whatsapp_status
 /health · /ollama_test · /autopost_status · /positioning
 
 Legacy-команды сохранены для совместимости, но основной режим — AI Growth Manager."""
@@ -115,6 +115,43 @@ async def dm_preview(message: Message, settings: Settings):
     await message.answer(f"Предпросмотр ({reply.stage}):\n\n{reply.text}")
 
 
+@router.message(Command("sales_preview"))
+async def sales_preview(message: Message, settings: Settings):
+    if not await require_owner(message, settings):
+        return
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await message.answer("Добавьте текст лида. Пример:\n/sales_preview Хочу AI-бота для салона")
+        return
+    reply = build_lead_reply(parts[1].strip(), settings.whatsapp_contact_link, settings.whatsapp_phone)
+    notification = hot_lead_notification(message, reply) if reply.is_hot else "не отправляется: лид ещё не hot"
+    await message.answer(
+        f"Ответ агента:\n{reply.text}\n\n"
+        f"Lead score: {reply.lead_score} ({reply.score})\n"
+        f"Recommended next step: {reply.next_step}\n\n"
+        f"Owner notification preview:\n{notification}"
+    )
+
+
+@router.message(Command("sales_status"))
+async def sales_status(
+    message: Message,
+    settings: Settings,
+    lead_service: LeadConversationService,
+):
+    if not await require_owner(message, settings):
+        return
+    await message.answer(
+        "AI Sales Closing Agent enabled: yes\n"
+        f"Lead auto reply enabled: {'yes' if lead_service.enabled else 'no'}\n"
+        f"WhatsApp configured: {'yes' if settings.whatsapp_contact_link or settings.whatsapp_phone else 'no'}\n"
+        f"Owner notifications configured: {'yes' if settings.owner_telegram_id is not None else 'no'}\n"
+        f"Price ranges loaded: {len(PRICE_RANGES)}\n"
+        f"Hot lead threshold: {HOT_LEAD_THRESHOLD}\n"
+        f"Last lead summary:\n{lead_service.store.last_summary()}"
+    )
+
+
 @router.message(Command("whatsapp_status"))
 async def whatsapp_status(message: Message, settings: Settings):
     if not await require_owner(message, settings):
@@ -140,10 +177,12 @@ async def lead_message(
         settings.whatsapp_contact_link,
         settings.whatsapp_phone,
     )
-    lead_service.store.record(message.from_user, message.text or "", reply.stage)
+    lead_service.store.record(
+        message.from_user, message.text or "", reply.stage, reply.lead_score, reply.summary
+    )
     await message.answer(reply.text)
     if reply.is_hot and settings.owner_telegram_id is not None:
         await message.bot.send_message(
             settings.owner_telegram_id,
-            hot_lead_notification(message),
+            hot_lead_notification(message, reply),
         )
