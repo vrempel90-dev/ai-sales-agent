@@ -1,7 +1,7 @@
 import re
 from difflib import SequenceMatcher
 
-from app.agents import VIRAL_THREADS_TEMPLATES, viral_niche_post
+from app.agents import VIRAL_THREADS_TEMPLATES, apply_viral_cta, viral_niche_post
 from app.content_safety import validate_threads_post
 from app.post_queue import PostQueue, QueuedPost
 
@@ -11,9 +11,11 @@ PAIN_WORDS = ("теря", "не дожд", "хаос", "медлен", "забы
 CONSEQUENCE_WORDS = ("ушёл", "конкурент", "оплат", "потер", "не попал", "без продаж", "исчез")
 SOLUTION_WORDS = ("ai бот", "ai чат бот", "ai администратор", "ai менеджер")
 CHANNEL_WORDS = ("direct", "telegram", "whatsapp", "crm", "заяв", "follow-up", "запис")
-CTA_WORDS = ("напишите аудит", "напишите бот", "напишите разбор", "точки потерь")
-WEAK_PHRASES = ("могу показать схему", "уникальный ai-бот", "бесплатная услуга",
-                "гарантированная прибыль", "просто улучшить", "поможет бизнесу")
+CTA_WORDS = ("напишите аудит", "напишите бот", "напишите разбор")
+WEAK_PHRASES = ("могу показать схему", "покажу простую схему", "если хотите расскажу",
+                "давайте посмотрим", "могу предложить", "уникальный ai-бот",
+                "бесплатная услуга", "гарантированная прибыль", "просто улучшить",
+                "поможет бизнесу")
 IRRELEVANT = ("сайт", "лендинг", "веб-приложение", "html", "css", "javascript",
               "интернет-магазин", "seo", "дизайн сайта", "smm", "тестовая система")
 
@@ -60,11 +62,14 @@ def viral_fallback(index: int = 0, niche: str | None = None) -> str:
         if score_thread_post(candidate) >= MIN_VIRAL_SCORE:
             return candidate
     templates = list(VIRAL_THREADS_TEMPLATES)
-    return templates[index % len(templates)]
+    return apply_viral_cta(templates[index % len(templates)], index)
 
 
 def ensure_strong_post(text: str, fallback_index: int = 0, niche: str | None = None) -> str:
     candidate = (text or "").strip()
+    normalized = normalize_thread_text(candidate)
+    if candidate and any(phrase in normalized for phrase in WEAK_PHRASES):
+        candidate = apply_viral_cta(candidate, fallback_index)
     valid, _ = validate_threads_post(candidate)
     if valid and score_thread_post(candidate) >= MIN_VIRAL_SCORE:
         return candidate

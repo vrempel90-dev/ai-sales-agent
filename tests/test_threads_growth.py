@@ -1,6 +1,6 @@
 import asyncio
 
-from app.agents import VIRAL_THREADS_TEMPLATES
+from app.agents import VIRAL_THREADS_TEMPLATES, viral_threads_day_posts
 from app.config import Settings
 from app.post_queue import PostQueue
 from app.threads_growth import (
@@ -75,6 +75,45 @@ def test_weak_post_is_replaced_with_viral_fallback():
 
     assert result == VIRAL_THREADS_TEMPLATES[1]
     assert score_thread_post(result) >= MIN_VIRAL_SCORE
+
+
+def test_viral_posts_end_with_strong_cta():
+    posts = viral_threads_day_posts()
+
+    assert all("напишите" in post.rsplit("\n\n", 1)[-1].lower() for post in posts)
+    assert all(score_thread_post(post) >= MIN_VIRAL_SCORE for post in posts)
+
+
+def test_weak_cta_is_replaced_by_quality_check():
+    weak = (
+        "Ваш администратор отвечает медленно, поэтому оплаченная заявка уходит конкуренту.\n\n"
+        "AI-бот сразу уточняет запрос, сохраняет контакт и передаёт диалог менеджеру в CRM.\n\n"
+        "Если хотите, расскажу."
+    )
+
+    result = ensure_strong_post(weak)
+
+    assert "если хотите, расскажу" not in result.lower()
+    assert result.endswith("Напишите «аудит» в личку — покажу, где у вас теряются заявки и какой AI-бот это закроет.")
+
+
+def test_public_telegram_link_is_used_only_by_some_ctas(monkeypatch):
+    monkeypatch.setenv("PUBLIC_TELEGRAM_BOT_LINK", "https://t.me/sales_audit_bot")
+
+    posts = viral_threads_day_posts()
+
+    assert any("Напишите «бот» в Telegram: https://t.me/sales_audit_bot" in post for post in posts)
+    assert any("в личку" in post for post in posts)
+    assert not all("https://t.me/sales_audit_bot" in post for post in posts)
+
+
+def test_regular_threads_cta_never_contains_whatsapp_link(monkeypatch):
+    monkeypatch.setenv("PUBLIC_TELEGRAM_BOT_LINK", "https://t.me/sales_audit_bot")
+    monkeypatch.setenv("WHATSAPP_CONTACT_LINK", "https://wa.me/79990000000")
+
+    posts = viral_threads_day_posts()
+
+    assert all("wa.me" not in post.lower() for post in posts)
 
 
 def test_score_distinguishes_strong_from_weak_post():
