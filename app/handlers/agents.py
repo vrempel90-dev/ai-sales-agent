@@ -24,12 +24,16 @@ from app.threads_growth import (
     refill_growth_queue,
     viral_fallback,
 )
+from app.comment_discovery import comment_discovery
+from app.growth_state import growth_runtime
+from app.handlers.sales import require_owner
 from datetime import datetime, timezone
 
 router = Router()
 EMPTY_HELP = "Добавьте текст после команды. Пример:\n{example}"
 UNKNOWN_COMMAND = "Неизвестная команда. Напишите /agents, чтобы посмотреть список агентов."
 OPTIONAL_TEXT_COMMANDS = {"/posts", "/niches"}
+COPY_REQUESTS = ("скопируй полностью", "сделай точно как он", "один в один")
 
 
 def arg_text(message: Message) -> str:
@@ -42,6 +46,42 @@ async def generate_posts_response(settings: Settings, niche: str) -> str:
     # чтобы не зависать на Railway.
     fallback = fallback_posts()
     return "\n\n".join(f"{index}. {post}" for index, post in enumerate(fallback, 1))
+
+
+def profile_copy_refusal(text: str) -> str | None:
+    if any(phrase in (text or "").lower() for phrase in COPY_REQUESTS):
+        return (
+            "Я могу разобрать механику и адаптировать стиль под вашу нишу, "
+            "но не буду копировать чужой текст дословно."
+        )
+    return None
+
+
+def profile_analysis(text: str, mode: str) -> str:
+    refusal = profile_copy_refusal(text)
+    if refusal:
+        return refusal
+    subject = (text or "").strip()[:300] or "профиль без описания"
+    if mode == "posts":
+        return (
+            f"Механика источника: {subject}\n\n"
+            "1. Потерянная заявка редко выглядит как потеря.\n\nAI-бот фиксирует первый "
+            "контакт и передаёт его в CRM.\n\nНапишите «аудит» в личку — покажу точки потерь.\n\n"
+            "2. Direct — не CRM. AI-администратор отвечает сразу, уточняет запрос и не "
+            "даёт лиду исчезнуть.\n\nНапишите «бот» — покажу схему под вашу нишу."
+        )
+    if mode == "strategy":
+        return (
+            "Стратегия адаптации: сохранить частоту хуков и короткие абзацы, но заменить "
+            "чужие формулировки на боли заявок, Direct, CRM и follow-up. Контент-микс: "
+            "40% боли, 30% разборы, 20% кейсовая механика, 10% CTA."
+        )
+    return (
+        f"Анализ механики профиля: {subject}\n"
+        "Сильные элементы: короткий хук, одна боль, конкретное последствие, ясный следующий шаг.\n"
+        "Адаптация: AI-чат-боты, обработка заявок, Direct/Telegram/WhatsApp, CRM и follow-up.\n"
+        "Чужие тексты и личность автора дословно не копируются."
+    )
 
 
 def get_command_name(command) -> str:
@@ -71,6 +111,19 @@ async def run_prompt(message: Message, settings: Settings, command: str, text: s
 
 @router.message(Command("agents"))
 async def cmd_agents(message: Message): await message.answer(agents_help())
+
+
+for _profile_command, _profile_mode in {
+    "profile_scan": "scan",
+    "profile_style": "scan",
+    "profile_strategy": "strategy",
+    "profile_posts": "posts",
+    "profile_hooks": "scan",
+    "profile_compare": "strategy",
+}.items():
+    async def profile_handler(message: Message, mode=_profile_mode):
+        await message.answer(profile_analysis(arg_text(message), mode))
+    router.message(Command(_profile_command))(profile_handler)
 
 for _cmd in [c.lstrip("/") for c in AGENTS]:
     async def handler(message: Message, settings: Settings, command=_cmd):
@@ -174,6 +227,7 @@ async def viral_post(message: Message):
 async def growth_status(message: Message, settings: Settings):
     today = datetime.now(timezone.utc).date()
     await message.answer(
+        f"autopilot enabled: {'yes' if growth_runtime.enabled(settings.growth_autopilot_enabled) else 'no'}\n"
         f"THREADS_GROWTH_MODE_ENABLED={str(settings.threads_growth_mode_enabled).lower()}\n"
         f"THREADS_MIN_QUEUE_SIZE={settings.threads_min_queue_size}\n"
         f"THREADS_VIRAL_ONLY={str(settings.threads_viral_only).lower()}\n"
@@ -181,13 +235,98 @@ async def growth_status(message: Message, settings: Settings):
         f"published today: {post_queue.get_published_count_for_date(today)}\n"
         f"next post hours: {','.join(map(str, settings.threads_auto_post_hours))}\n"
         f"auto_generate_if_queue_empty: {str(settings.threads_auto_generate_if_queue_empty).lower()}\n"
-        f"auto_publish: {str(settings.threads_auto_publish).lower()}"
+        f"auto_publish: {str(settings.threads_auto_publish).lower()}\n"
+        f"daily report enabled: {str(settings.growth_daily_report_enabled).lower()}\n"
+        f"last autopilot action: {growth_runtime.last_action}\n"
+        f"last autopilot error: {growth_runtime.last_error or 'none'}\n"
+        f"Safe Comment Discovery: {'enabled' if settings.comment_discovery_enabled else 'disabled'}, "
+        f"drafts={len(comment_discovery.drafts())}, approval={settings.comment_approval_required}"
+    )
+
+
+def build_growth_report(settings: Settings) -> str:
+    today = datetime.now(timezone.utc).date()
+    published = [p for p in post_queue.list_by_status("published") if (p.published_at or "").startswith(today.isoformat())]
+    return (
+        "AI Growth Manager — growth report\n"
+        f"Опубликовано сегодня: {len(published)}\n"
+        f"Посты: {', '.join('#' + p.id for p in published) or 'нет'}\n"
+        f"Draft в очереди: {post_queue.get_draft_count()}\n"
+        f"Добавлено автопилотом: {growth_runtime.posts_added}\n"
+        f"Threads API errors: {growth_runtime.last_error or 'нет'}\n"
+        "Лиды/hot leads: обрабатываются Sales DM Agent\n"
+        f"Ollama: модель {settings.ollama_model}, fallback-first активен\n"
+        f"WhatsApp handoff: {'настроен' if settings.whatsapp_contact_link or settings.whatsapp_phone else 'не настроен'}\n"
+        f"Last autopilot action: {growth_runtime.last_action}\n"
+        f"Last autopilot error: {growth_runtime.last_error or 'нет'}\n\n"
+        "Safe Comment Discovery:\n"
+        f"Найдено веток/источников: {comment_discovery.found_count}\n"
+        f"Comment drafts создано: {len(comment_discovery.items)}\n"
+        f"Опубликовано: {comment_discovery.posted_today()}\n"
+        f"Ждут подтверждения: {len(comment_discovery.drafts())}"
+    )
+
+
+@router.message(Command("growth_report"))
+async def growth_report(message: Message, settings: Settings):
+    await message.answer(build_growth_report(settings))
+
+
+@router.message(Command("autopilot_status"))
+async def autopilot_status(message: Message, settings: Settings):
+    today = datetime.now(timezone.utc).date()
+    await message.answer(
+        "Safe Autopilot status\n"
+        f"autopilot enabled: {'yes' if growth_runtime.enabled(settings.growth_autopilot_enabled) else 'no'}\n"
+        f"growth mode enabled: {'yes' if settings.threads_growth_mode_enabled else 'no'}\n"
+        f"viral only: {'yes' if settings.threads_viral_only else 'no'}\n"
+        f"min queue size: {settings.threads_min_queue_size}\n"
+        f"draft count: {post_queue.get_draft_count()}\n"
+        f"published today: {post_queue.get_published_count_for_date(today)}\n"
+        f"next post hours: {','.join(map(str, settings.threads_auto_post_hours))}\n"
+        f"auto publish: {'yes' if settings.threads_auto_publish else 'no'}\n"
+        f"auto generate if queue empty: {'yes' if settings.threads_auto_generate_if_queue_empty else 'no'}\n"
+        f"daily report enabled: {'yes' if settings.growth_daily_report_enabled else 'no'}\n"
+        f"last autopilot action: {growth_runtime.last_action}\n"
+        f"last autopilot error: {growth_runtime.last_error or 'none'}\n"
+        "DM agent status: enabled\n"
+        f"WhatsApp status: {'configured' if settings.whatsapp_contact_link or settings.whatsapp_phone else 'not configured'}\n\n"
+        "Safe Comment Discovery:\n"
+        f"enabled: {'yes' if settings.comment_discovery_enabled else 'no'}\n"
+        f"approval required: {'yes' if settings.comment_approval_required else 'no'}\n"
+        f"drafts: {len(comment_discovery.drafts())}, posted today: {comment_discovery.posted_today()}"
+    )
+
+
+@router.message(Command("autopilot_on"))
+async def autopilot_on(message: Message, settings: Settings):
+    if not await require_owner(message, settings):
+        return
+    growth_runtime.autopilot_override = True
+    growth_runtime.last_action = "автопилот включён владельцем"
+    await message.answer(
+        "Safe Autopilot включён в runtime. Для постоянного включения установите "
+        "GROWTH_AUTOPILOT_ENABLED=true в Railway Variables."
+    )
+
+
+@router.message(Command("autopilot_off"))
+async def autopilot_off(message: Message, settings: Settings):
+    if not await require_owner(message, settings):
+        return
+    growth_runtime.autopilot_override = False
+    growth_runtime.last_action = "автопилот выключен владельцем"
+    await message.answer(
+        "Safe Autopilot выключен в runtime. Для постоянного выключения установите "
+        "GROWTH_AUTOPILOT_ENABLED=false в Railway Variables."
     )
 
 
 @router.message(Command("growth_refill"))
 async def growth_refill(message: Message, settings: Settings):
     added = refill_growth_queue(post_queue, settings.threads_min_queue_size, source="growth-refill-command")
+    growth_runtime.posts_added += len(added)
+    growth_runtime.last_action = f"очередь пополнена на {len(added)} постов"
     await message.answer(
         f"Добавлено strong viral draft-постов: {len(added)}. "
         f"Сейчас в очереди: {post_queue.get_draft_count()}."
@@ -197,28 +336,28 @@ async def growth_refill(message: Message, settings: Settings):
 @router.message(Command("growth_plan"))
 async def growth_plan(message: Message):
     await message.answer(
-        "План Threads на день\n\n"
-        "3 темы постов:\n1. Заявка ночью ушла до утра.\n2. Direct скрывает потери.\n3. CRM без автоматического ввода.\n\n"
-        "5 готовых комментариев:\n"
-        "1. Часто проблема не в рекламе, а в том, что первый ответ клиент получает слишком поздно.\n"
-        "2. Если заявки идут через Direct и WhatsApp, без фиксации легко не заметить, сколько лидов потерялось.\n"
-        "3. AI-бот полезен не вместо менеджера, а до менеджера: принять заявку, уточнить запрос и не потерять контакт.\n"
-        "4. CRM не спасает, если заявки туда никто не заносит.\n"
-        "5. Самая дорогая заявка — та, которую оплатили рекламой и не обработали вовремя.\n\n"
-        "3 темы ответов: скорость первого контакта; запись через мессенджеры; передача заявки в CRM.\n\n"
-        "Оффер дня: напишите «аудит» в личку — покажу точки потерь и какой AI-бот их закроет."
+        "План автопилота Threads на сегодня:\n\n"
+        "1. Главная цель дня: показать стоимость потерянного первого ответа.\n"
+        "2. Какие темы бот будет публиковать: заявки ночью, хаос в Direct, передача в CRM.\n"
+        "3. Какие боли будут использоваться: медленный ответ, забытый follow-up, потерянная запись.\n"
+        "4. Какой CTA дня: «аудит» в личку.\n"
+        "5. Какие ниши в фокусе: клиники, салоны, услуги, онлайн-школы.\n"
+        "6. Что уже опубликовано: смотрите /growth_report.\n"
+        "7. Что стоит в очереди: смотрите /threads_queue.\n"
+        "8. Комментарии/ветки: безопасные drafts в /comment_queue.\n"
+        "9. Что проверить вечером: отчёт, ошибки API, очередь и горячие лиды."
     )
 
 
 @router.message(Command("engagement_tasks"))
 async def engagement_tasks(message: Message):
     await message.answer(
-        "Ручные задания для роста охвата:\n"
+        "Автопилот уже ведёт постинг сам. Ниже — необязательные безопасные действия, если хотите усилить охват вручную.\n"
         "1. Найти 5 свежих постов про заявки, продажи, Direct или работу администраторов.\n"
         "2. Оставить 5 комментариев из готовых вариантов в /growth_plan.\n"
         "3. Ответить на 3 релевантные ветки.\n"
         "4. Проверить входящие и незавершённые диалоги.\n"
-        "5. Опубликовать 1 сильный пост.\n"
+        "5. Убедиться, что очередь заполнена.\n"
         "6. CTA дня: «аудит».\n\n"
         "Все действия выполняются вручную: без автолайков, автофолловинга и автокомментариев."
     )
