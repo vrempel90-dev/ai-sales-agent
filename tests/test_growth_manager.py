@@ -3,12 +3,13 @@ from types import SimpleNamespace
 
 from app.comment_discovery import CommentDiscoveryService
 from app.handlers.agents import autopilot_on, build_growth_report, profile_analysis
+from app.handlers.comments import comment_generate, comment_next, comment_queue
 from app.handlers.sales import START_TEXT
 from app.main import BOT_COMMANDS
 from tests.test_threads_growth import make_settings
 
 
-def _message(user_id=1):
+def _message(user_id=1, text=""):
     answers = []
 
     async def answer(text):
@@ -16,6 +17,7 @@ def _message(user_id=1):
 
     return SimpleNamespace(
         from_user=SimpleNamespace(id=user_id),
+        text=text,
         answer=answer,
     ), answers
 
@@ -77,6 +79,78 @@ def test_comment_queue_uses_approval_and_duplicate_guard(tmp_path):
     ok, reason = service.publish("1", settings, owner_confirmed=False)
     assert not ok
     assert "подтверждение" in reason.lower()
+
+
+def test_comment_generate_queues_drafts_and_commands_show_them(tmp_path, monkeypatch):
+    settings = make_settings(
+        str(tmp_path / "db.sqlite"),
+        comment_auto_reply_enabled=False,
+        comment_approval_required=True,
+        comment_min_relevance_score=70,
+    )
+    service = CommentDiscoveryService()
+    monkeypatch.setattr("app.handlers.comments.comment_discovery", service)
+    source = "Бизнес теряет заявки: продажи, Direct, WhatsApp, CRM и администратор отвечают медленно"
+
+    generate_message, generated_answers = _message(text=f"/comment_generate {source}")
+    asyncio.run(comment_generate(generate_message, settings))
+
+    assert len(service.drafts()) == 3
+    assert "Сгенерировано и добавлено в очередь: 3 draft-комментариев." in generated_answers[0]
+    assert all(item.status == "draft" for item in service.items)
+    assert settings.comment_auto_reply_enabled is False
+    assert settings.comment_approval_required is True
+
+    queue_message, queue_answers = _message(text="/comment_queue")
+    asyncio.run(comment_queue(queue_message))
+    assert "Очередь комментариев пуста" not in queue_answers[0]
+    assert "#1" in queue_answers[0]
+
+    next_message, next_answers = _message(text="/comment_next")
+    asyncio.run(comment_next(next_message))
+    assert "Комментарий #1" in next_answers[0]
+    assert service.drafts()[0].comment in next_answers[0]
+    assert "relevance score:" in next_answers[0]
+    assert "risk score:" in next_answers[0]
+    assert "/comment_publish 1" in next_answers[0]
+
+
+def test_comment_generate_rejects_whatsapp_links_and_duplicates(tmp_path, monkeypatch):
+    settings = make_settings(str(tmp_path / "db.sqlite"), comment_min_relevance_score=70)
+    service = CommentDiscoveryService()
+    source = "Бизнес теряет заявки: продажи, Direct, WhatsApp, CRM и администратор отвечают медленно"
+    monkeypatch.setattr(
+        service,
+        "generate_comments",
+        lambda text: [
+            "Напишите нам по ссылке https://wa.me/70000000000, и мы срочно всё настроим.",
+            "Скорость ответа на заявку напрямую влияет на конверсию и не даёт тёплому лиду потеряться.",
+            "Скорость ответа на заявку напрямую влияет на конверсию и не даёт тёплому лиду потеряться.",
+        ],
+    )
+
+    added, reasons = service.enqueue_generated(source, settings)
+
+    assert len(added) == 1
+    assert len(service.drafts()) == 1
+    assert "wa.me" not in service.drafts()[0].comment.lower()
+    assert "обнаружена WhatsApp-ссылка" in reasons
+    assert "дубликат комментария" in reasons
+
+
+def test_comment_generate_rejects_forbidden_topic_with_reason(tmp_path, monkeypatch):
+    settings = make_settings(str(tmp_path / "db.sqlite"), comment_min_relevance_score=70)
+    service = CommentDiscoveryService()
+    monkeypatch.setattr("app.handlers.comments.comment_discovery", service)
+    message, answers = _message(
+        text="/comment_generate Политика, война и инвестиции для бизнеса, продаж, CRM и лидов"
+    )
+
+    asyncio.run(comment_generate(message, settings))
+
+    assert service.drafts() == []
+    assert "Не добавил комментарии в очередь" in answers[0]
+    assert "запрещённая или высокорисковая тема" in answers[0]
 
 
 def test_profile_intelligence_refuses_verbatim_copy():
