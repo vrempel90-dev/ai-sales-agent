@@ -34,6 +34,9 @@ START_TEXT = """Привет. Я AI Sales Agent для продажи AI-чат-
 Threads:
 /threads_day — подготовить 5 постов на сегодня
 /threads_post тема поста — подготовить пост
+/viral_threads_day — 7 сильных Threads draft-постов
+/viral_post ниша — сильный Threads-пост под нишу
+/positioning — текущее позиционирование
 /threads_queue — очередь постов
 /threads_publish id_поста — опубликовать пост после подтверждения
 /health — статус Railway/Ollama/Threads

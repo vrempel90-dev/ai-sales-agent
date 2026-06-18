@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.config import Settings
 from app.content_safety import validate_threads_post
-from app.ollama_client import ask_ollama
+from app.agents import fallback_threads_day_posts
 from app.post_queue import PostQueue, QueuedPost
 from app.threads_client import ThreadsClient, THREADS_NOT_CONFIGURED
 
@@ -36,17 +36,11 @@ def _generation_prompt(hour: int) -> str:
 async def generate_post_if_needed(settings: Settings, queue: PostQueue, scheduled_hour: int) -> QueuedPost | None:
     if not settings.threads_auto_generate_if_queue_empty:
         return None
-    try:
-        text = await ask_ollama(settings, _generation_prompt(scheduled_hour))
-    except Exception:
-        logger.exception("Failed to generate Threads post via Ollama")
-        return None
-
+    # Autogeneration is template-first so publishing remains useful when Ollama is unavailable.
+    text = fallback_threads_day_posts()[scheduled_hour % len(fallback_threads_day_posts())]
     is_valid, reason = validate_threads_post(text)
     if not is_valid:
         logger.warning("Generated Threads post failed safety check: %s", reason)
-        failed = queue.add_post(text, source="auto-generated", scheduled_hour=scheduled_hour)
-        queue.mark_failed(failed.id, f"safety: {reason}")
         return None
 
     post = queue.add_post(text, source="auto-generated", scheduled_hour=scheduled_hour)
