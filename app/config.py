@@ -68,6 +68,18 @@ class Settings:
     lead_auto_reply_enabled: bool = True
     whatsapp_contact_link: str = ""
     whatsapp_phone: str = ""
+    growth_autopilot_enabled: bool = False
+    growth_daily_report_enabled: bool = False
+    growth_report_hour: int = 21
+    growth_report_timezone: str = "Asia/Almaty"
+    comment_discovery_enabled: bool = True
+    comment_auto_reply_enabled: bool = False
+    comment_approval_required: bool = True
+    comment_daily_limit: int = 3
+    comment_search_topics: str = "заявки,продажи,Direct,CRM,администратор,WhatsApp,Telegram,AI-бот"
+    comment_min_relevance_score: int = 70
+    comment_report_hour: int = 20
+    comment_report_timezone: str = "Asia/Almaty"
 
     @property
     def threads_api_configured(self) -> bool:
@@ -115,4 +127,19 @@ def get_settings() -> Settings:
         lead_auto_reply_enabled=_bool_env("LEAD_AUTO_REPLY_ENABLED", "true"),
         whatsapp_contact_link=os.getenv("WHATSAPP_CONTACT_LINK", "").strip(),
         whatsapp_phone=os.getenv("WHATSAPP_PHONE", "").strip(),
+        growth_autopilot_enabled=_bool_env("GROWTH_AUTOPILOT_ENABLED", "false"),
+        growth_daily_report_enabled=_bool_env("GROWTH_DAILY_REPORT_ENABLED", "false"),
+        growth_report_hour=_int_env("GROWTH_REPORT_HOUR", 21),
+        growth_report_timezone=os.getenv("GROWTH_REPORT_TIMEZONE", "Asia/Almaty").strip(),
+        comment_discovery_enabled=_bool_env("COMMENT_DISCOVERY_ENABLED", "true"),
+        comment_auto_reply_enabled=_bool_env("COMMENT_AUTO_REPLY_ENABLED", "false"),
+        comment_approval_required=_bool_env("COMMENT_APPROVAL_REQUIRED", "true"),
+        comment_daily_limit=max(1, _int_env("COMMENT_DAILY_LIMIT", 3)),
+        comment_search_topics=os.getenv(
+            "COMMENT_SEARCH_TOPICS",
+            "заявки,продажи,Direct,CRM,администратор,WhatsApp,Telegram,AI-бот",
+        ).strip(),
+        comment_min_relevance_score=_int_env("COMMENT_MIN_RELEVANCE_SCORE", 70),
+        comment_report_hour=_int_env("COMMENT_REPORT_HOUR", 20),
+        comment_report_timezone=os.getenv("COMMENT_REPORT_TIMEZONE", "Asia/Almaty").strip(),
     )

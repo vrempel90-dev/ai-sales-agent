@@ -7,45 +7,39 @@ from app.lead_store import LeadConversationService
 
 router = Router()
 
-START_TEXT = """Привет. Я AI Sales Agent для продажи AI-чат-ботов бизнесу.
+START_TEXT = """Привет. Я AI Growth Manager для Threads в режиме Safe Autopilot.
 
-Я умею:
-• писать посты
-• делать Threads-ветки
-• отвечать на комментарии
-• помогать с личкой
-• обрабатывать возражения
-• делать аудит бизнеса
-• создавать офферы и КП
-• писать ТЗ для Codex
-• проектировать ботов
-• делать тесты
-• готовить посты для Threads и публиковать их после подтверждения
+Моя задача — вести профиль как команда специалистов: стратег, ghostwriter, growth-маркетолог, аналитик и sales-менеджер.
 
-Основные команды:
-/agents — показать всех 25 агентов
-/day — запустить день продаж
-/posts — 10 постов
-/dm сообщение клиента — ответ клиенту
-/audit описание бизнеса — аудит бизнеса
-/proposal описание задачи — КП
-/codex описание проекта — ТЗ для Codex
+Я сам:
+• создаю сильные Threads-посты, держу очередь и публикую по расписанию
+• проверяю качество, сильные CTA и дубли
+• готовлю безопасные комментарии к релевантным веткам
+• веду лидов в личке и перевожу горячих клиентов в WhatsApp
+
+Без автоспама, автолайков, автофолловинга и серых методов.
+
+Safe Autopilot:
+/autopilot_status · /autopilot_on · /autopilot_off
+/growth_status · /growth_report · /growth_refill · /growth_plan
+/engagement_tasks — необязательное ручное усиление
 
 Threads:
-/threads_day — подготовить 5 постов на сегодня
-/threads_post тема поста — подготовить пост
-/viral_threads_day — 7 сильных Threads draft-постов
-/viral_post ниша — сильный Threads-пост под нишу
-/positioning — текущее позиционирование
-/growth_status — статус Threads Growth Agent
-/growth_refill — пополнить очередь сильными постами
-/growth_plan — план раскачки на день
-/engagement_tasks — ручные задания для роста охвата
-/threads_queue — очередь постов
-/threads_publish id_поста — опубликовать пост после подтверждения
-/health — статус Railway/Ollama/Threads
-/ollama_test — проверить связь с Ollama
-/autopost_status — статус автопостинга"""
+/viral_threads_day · /viral_post ниша
+/threads_queue · /threads_next · /threads_publish id
+
+Safe Comment Discovery:
+/comment_discovery_status · /comment_find текст_или_ссылка
+/comment_queue · /comment_next · /comment_report
+
+Profile Intelligence:
+/profile_scan текст · /profile_strategy текст · /profile_posts текст
+
+Sales DM и System:
+/dm_preview сообщение · /whatsapp_status · /lead_mode_status
+/health · /ollama_test · /autopost_status · /positioning
+
+Legacy-команды сохранены для совместимости, но основной режим — AI Growth Manager."""
 
 @router.message(CommandStart())
 async def start(message: Message):

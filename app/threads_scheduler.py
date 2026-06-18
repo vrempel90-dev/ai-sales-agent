@@ -13,6 +13,7 @@ from app.threads_growth import (
     viral_fallback,
 )
 from app.threads_client import ThreadsClient, THREADS_NOT_CONFIGURED
+from app.growth_state import growth_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +69,13 @@ async def publish_one_scheduled_post(settings: Settings, queue: PostQueue, sched
         post = await generate_post_if_needed(settings, queue, scheduled_hour)
     if post is None:
         logger.info("Threads scheduler: queue is empty, nothing to publish")
+        growth_runtime.last_error = "Автопилот не опубликовал пост, потому что не нашёл текст, прошедший quality check."
         return False
 
     is_valid, reason = validate_growth_post(post.text)
     if not is_valid:
         queue.mark_failed(post.id, f"safety: {reason}")
+        growth_runtime.last_error = f"quality check: {reason}"
         logger.warning("Threads post #%s failed safety check: %s", post.id, reason)
         return False
 
@@ -84,12 +87,16 @@ async def publish_one_scheduled_post(settings: Settings, queue: PostQueue, sched
         result = await ThreadsClient(settings).publish_text_post(post.text)
     except Exception:
         logger.exception("Threads scheduler failed to publish post #%s", post.id)
+        growth_runtime.last_error = f"Threads API error for post #{post.id}"
         return False
 
     queue.mark_published(post.id)
     logger.info("Threads scheduler published post #%s. API response: %s", post.id, result)
-    if settings.threads_growth_mode_enabled:
-        refill_growth_queue(queue, settings.threads_min_queue_size, source="growth-after-publish")
+    growth_runtime.last_action = f"опубликован пост #{post.id}"
+    growth_runtime.last_error = ""
+    if settings.threads_growth_mode_enabled or growth_runtime.enabled(settings.growth_autopilot_enabled):
+        added = refill_growth_queue(queue, settings.threads_min_queue_size, source="growth-after-publish")
+        growth_runtime.posts_added += len(added)
     return True
 
 
@@ -100,8 +107,11 @@ async def run_threads_scheduler(settings: Settings, queue: PostQueue) -> None:
 
     tz = _timezone(settings.threads_auto_post_timezone)
     posted_hours: set[tuple[str, int]] = set()
-    if settings.threads_growth_mode_enabled:
-        refill_growth_queue(queue, settings.threads_min_queue_size, source="growth-startup")
+    autopilot = growth_runtime.enabled(settings.growth_autopilot_enabled)
+    if settings.threads_growth_mode_enabled or autopilot:
+        added = refill_growth_queue(queue, settings.threads_min_queue_size, source="growth-startup")
+        growth_runtime.posts_added += len(added)
+        growth_runtime.last_action = f"startup refill: {len(added)}"
     logger.info(
         "Auto Threads Posting: enabled; hours=%s timezone=%s daily_limit=%s",
         settings.threads_auto_post_hours,
@@ -115,8 +125,11 @@ async def run_threads_scheduler(settings: Settings, queue: PostQueue) -> None:
             today_key = now.date().isoformat()
             current_hour = now.hour
             posted_hours = {item for item in posted_hours if item[0] == today_key}
-            if settings.threads_growth_mode_enabled and queue.get_draft_count() < settings.threads_min_queue_size:
-                refill_growth_queue(queue, settings.threads_min_queue_size)
+            autopilot = growth_runtime.enabled(settings.growth_autopilot_enabled)
+            if (settings.threads_growth_mode_enabled or autopilot) and queue.get_draft_count() < settings.threads_min_queue_size:
+                added = refill_growth_queue(queue, settings.threads_min_queue_size)
+                growth_runtime.posts_added += len(added)
+                growth_runtime.last_action = f"очередь автоматически пополнена на {len(added)}"
 
             if current_hour in settings.threads_auto_post_hours:
                 hour_key = (today_key, current_hour)
