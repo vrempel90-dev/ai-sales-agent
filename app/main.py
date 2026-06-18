@@ -3,6 +3,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from app.config import get_settings
 from app.handlers import agents, sales
+from app.lead_store import LeadConversationService
 from app.post_queue import PostQueue
 from app.threads_scheduler import run_threads_scheduler
 
@@ -25,6 +26,10 @@ async def main():
     bot = Bot(settings.telegram_bot_token)
     dp = Dispatcher()
     dp["settings"] = settings
+    dp["lead_service"] = LeadConversationService(
+        settings.database_path,
+        settings.lead_auto_reply_enabled,
+    )
     dp.include_router(sales.router)
     dp.include_router(agents.router)
 
