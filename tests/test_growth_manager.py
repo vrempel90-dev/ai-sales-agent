@@ -35,7 +35,7 @@ def test_telegram_menu_is_curated():
     assert commands == [
         "start", "autopilot_status", "growth_status", "growth_report",
         "threads_queue", "threads_next", "comment_discovery_status",
-        "comment_queue", "health", "whatsapp_status", "positioning",
+        "comment_queue", "health", "sales_status", "sales_preview", "whatsapp_status", "positioning",
     ]
 
 
