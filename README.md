@@ -6,6 +6,7 @@ Telegram-бот как AI-команда для продажи и разрабо
 
 - 25 AI-агентов для контента, продаж, аудита, КП, разработки, промтов, тестов и ведения проекта.
 - Threads Publishing Agent: готовит посты, хранит SQLite-очередь и публикует через Threads API только после подтверждения пользователя.
+- Human-like Sales DM Agent: отвечает на обычные Telegram-сообщения, квалифицирует лидов и ведёт горячих клиентов в WhatsApp.
 - Без спама: бот не пишет людям сам, не лайкает, не подписывается, не обходит лимиты и не отправляет автолички.
 
 ## Команды
@@ -28,6 +29,19 @@ Telegram-бот как AI-команда для продажи и разрабо
 13. `/qualify описание клиента` — квалификация.
 14. `/script ниша` — скрипт продаж.
 15. `/close контекст диалога` — закрытие на следующий шаг.
+
+### Lead Conversation Agent
+
+- Обычное Telegram-сообщение без `/` обрабатывается как обращение потенциального клиента.
+- Ответы строятся template-first: агент коротко выясняет нишу и процесс, не полагаясь на свободную генерацию слабой Ollama-модели.
+- Агент различает интерес, вопрос цены, описание бизнеса, согласие на аудит, горячий лид, запрос сайта и негатив.
+- Сайты, лендинги и веб-приложения не предлагаются: диалог возвращается к AI-чат-ботам, обработке заявок, записи, CRM и follow-up.
+- Горячий лид получает `WHATSAPP_CONTACT_LINK`; если ссылки нет — `WHATSAPP_PHONE`; если нет обоих, агент просит оставить контакт.
+- Владелец получает Telegram-уведомление о горячем лиде через `OWNER_TELEGRAM_ID`.
+- `/lead_mode_on`, `/lead_mode_off`, `/lead_mode_status` — управление автоответами только для владельца.
+- `/dm_preview сообщение` — предпросмотр ответа без отправки реальному клиенту.
+- `/whatsapp_status` — статус WhatsApp-контактов, владельца и lead mode.
+- Агрессивный автоматический follow-up не выполняется. Позже агент можно подключить к Threads DM, Instagram DM или WhatsApp только через официальный API/webhook, если он доступен.
 
 ### Аналитика, офферы и КП
 16. `/audit описание бизнеса` — аудит бизнеса.
@@ -99,6 +113,10 @@ THREADS_USER_ID=your_threads_user_id
 THREADS_API_BASE_URL=https://graph.threads.net
 THREADS_AUTO_PUBLISH=false
 DATABASE_PATH=./ai_sales_agent.db
+LEAD_AUTO_REPLY_ENABLED=true
+OWNER_TELEGRAM_ID=
+WHATSAPP_CONTACT_LINK=https://wa.me/77712841932
+WHATSAPP_PHONE=+77712841932
 ```
 
 `THREADS_AUTO_PUBLISH=false` — безопасный режим по умолчанию. Публикация только после подтверждения.
@@ -110,12 +128,12 @@ DATABASE_PATH=./ai_sales_agent.db
 Для публикации нужны `THREADS_ACCESS_TOKEN`, `THREADS_USER_ID`, `THREADS_API_BASE_URL`. Если они не настроены, бот будет только готовить посты и держать их в очереди.
 
 
-## Threads → Telegram lead flow
+## Threads → Telegram → WhatsApp lead flow
 
 - Threads публикует короткие посты про AI-ботов, заявки и автоматизацию.
 - CTA в конце Threads-поста ведёт клиента в Telegram-бота для мини-аудита.
 - Telegram Lead Conversation Agent задаёт вопросы и квалифицирует клиента по потребности, нише и готовности к следующему шагу.
-- Горячий лид отправляется владельцу через `OWNER_TELEGRAM_ID`.
+- Горячий лид получает настроенный WhatsApp-контакт, а владельцу отправляется уведомление через `OWNER_TELEGRAM_ID`.
 
 ## Запуск
 
@@ -148,6 +166,10 @@ OLLAMA_TEMPERATURE=0.7
 OLLAMA_TOP_P=0.9
 DATABASE_PATH=/data/ai_sales_agent.db
 PUBLIC_TELEGRAM_BOT_LINK=https://t.me/your_bot_username
+LEAD_AUTO_REPLY_ENABLED=true
+OWNER_TELEGRAM_ID=
+WHATSAPP_CONTACT_LINK=https://wa.me/77712841932
+WHATSAPP_PHONE=+77712841932
 THREADS_ACCESS_TOKEN=your_threads_access_token
 THREADS_USER_ID=your_threads_user_id
 THREADS_API_BASE_URL=https://graph.threads.net
