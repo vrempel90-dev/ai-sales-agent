@@ -18,6 +18,12 @@ from app.keyboards import threads_post_keyboard
 from app.ollama_client import ask_ollama, build_ollama_options, test_ollama
 from app.post_queue import post_queue, QueuedPost
 from app.threads_client import ThreadsClient
+from app.threads_growth import (
+    add_strong_unique_post,
+    best_publishable_post,
+    refill_growth_queue,
+    viral_fallback,
+)
 from datetime import datetime, timezone
 
 router = Router()
@@ -99,21 +105,30 @@ async def show_post(message_or_cb, post: QueuedPost):
     else:
         await message_or_cb.answer(render_post(post), reply_markup=threads_post_keyboard(post.id))
 
-def queue_safe_post(text: str, *, fallback: str, source: str) -> QueuedPost:
-    is_valid, _ = validate_threads_post(text)
-    safe_text = text if is_valid else fallback
-    fallback_valid, reason = validate_threads_post(safe_text)
-    if not fallback_valid:
-        raise ValueError(f"Некорректный fallback Threads: {reason}")
-    return post_queue.add_post(safe_text, source=source)
+def queue_safe_post(text: str, *, fallback: str, source: str) -> QueuedPost | None:
+    # Every generated draft uses the same quality and duplicate gate. The fallback
+    # argument remains for compatibility with existing command call sites.
+    candidate = text if validate_threads_post(text)[0] else fallback
+    return add_strong_unique_post(post_queue, candidate, source=source)
+
+
+def queue_viral_post(text: str, *, source: str, index: int = 0, niche: str | None = None) -> QueuedPost | None:
+    return add_strong_unique_post(
+        post_queue, text, source=source, fallback_index=index, niche=niche,
+    )
 
 @router.message(Command("threads_day"))
 async def threads_day(message: Message, settings: Settings):
-    posts = fallback_threads_day_posts()[:5]
-    queued = [
-        queue_safe_post(post, fallback=fallback_threads_day_posts()[index], source="threads-day")
-        for index, post in enumerate(posts)
-    ]
+    posts = viral_threads_day_posts()[:5] if settings.threads_viral_only else fallback_threads_day_posts()[:5]
+    queued = []
+    for index, post in enumerate(posts):
+        queued_post = (
+            queue_viral_post(post, source="threads-day-viral", index=index)
+            if settings.threads_viral_only
+            else queue_safe_post(post, fallback=fallback_threads_day_posts()[index], source="threads-day")
+        )
+        if queued_post:
+            queued.append(queued_post)
     await message.answer(f"Добавил в очередь: {len(queued)} постов.")
     if queued: await show_post(message, queued[0])
 
@@ -121,15 +136,22 @@ async def threads_day(message: Message, settings: Settings):
 async def threads_post(message: Message, settings: Settings):
     topic = arg_text(message)
     if not topic: await message.answer("Добавьте тему после команды. Пример:\n/threads_post AI-бот для салона красоты"); return
-    text = safe_threads_post(topic)
-    await show_post(message, queue_safe_post(text, fallback=safe_threads_post("обработка заявок"), source="threads-post"))
+    if settings.threads_viral_only:
+        post = queue_viral_post(viral_niche_post(topic), source="threads-post-viral", niche=topic)
+    else:
+        text = safe_threads_post(topic)
+        post = queue_safe_post(text, fallback=safe_threads_post("обработка заявок"), source="threads-post")
+    if post:
+        await show_post(message, post)
+    else:
+        await message.answer("Уникальный draft не добавлен: похожий пост уже есть в очереди.")
 
 @router.message(Command("viral_threads_day"))
 async def viral_threads_day(message: Message):
     posts = viral_threads_day_posts()
     queued = [
-        queue_safe_post(post, fallback=fallback_threads_day_posts()[index % 5], source="viral-threads-day")
-        for index, post in enumerate(posts)
+        queued_post for index, post in enumerate(posts)
+        if (queued_post := queue_viral_post(post, source="viral-threads-day", index=index))
     ]
     await message.answer(f"Добавил в очередь: {len(queued)} viral draft-постов.")
     if queued:
@@ -141,9 +163,60 @@ async def viral_post(message: Message):
     if not niche:
         await message.answer("Добавьте нишу после команды. Пример:\n/viral_post клиники")
         return
-    fallback = viral_niche_post("бизнес")
-    post = queue_safe_post(viral_niche_post(niche), fallback=fallback, source="viral-post")
-    await show_post(message, post)
+    post = queue_viral_post(viral_niche_post(niche), source="viral-post", niche=niche)
+    if post:
+        await show_post(message, post)
+    else:
+        await message.answer("Уникальный draft не добавлен: похожий пост уже есть в очереди.")
+
+
+@router.message(Command("growth_status"))
+async def growth_status(message: Message, settings: Settings):
+    today = datetime.now(timezone.utc).date()
+    await message.answer(
+        f"THREADS_GROWTH_MODE_ENABLED={str(settings.threads_growth_mode_enabled).lower()}\n"
+        f"THREADS_MIN_QUEUE_SIZE={settings.threads_min_queue_size}\n"
+        f"THREADS_VIRAL_ONLY={str(settings.threads_viral_only).lower()}\n"
+        f"draft count: {post_queue.get_draft_count()}\n"
+        f"published today: {post_queue.get_published_count_for_date(today)}\n"
+        f"next post hours: {','.join(map(str, settings.threads_auto_post_hours))}\n"
+        f"auto_generate_if_queue_empty: {str(settings.threads_auto_generate_if_queue_empty).lower()}\n"
+        f"auto_publish: {str(settings.threads_auto_publish).lower()}"
+    )
+
+
+@router.message(Command("growth_refill"))
+async def growth_refill(message: Message, settings: Settings):
+    added = refill_growth_queue(post_queue, settings.threads_min_queue_size, source="growth-refill-command")
+    await message.answer(
+        f"Добавлено strong viral draft-постов: {len(added)}. "
+        f"Сейчас в очереди: {post_queue.get_draft_count()}."
+    )
+
+
+@router.message(Command("growth_plan"))
+async def growth_plan(message: Message):
+    await message.answer(
+        "План Threads на день\n\n"
+        "3 темы постов:\n1. Заявка ночью ушла до утра.\n2. Direct скрывает потери.\n3. CRM без автоматического ввода.\n\n"
+        "5 идей комментариев:\n1. Цена медленного ответа.\n2. Где теряются лиды.\n3. Что отдать AI-боту.\n"
+        "4. Почему менеджеру нужен первый фильтр.\n5. Как не забывать follow-up.\n\n"
+        "3 темы ответов: скорость первого контакта; запись через мессенджеры; передача заявки в CRM.\n\n"
+        "Оффер дня: аудит пути заявки из Direct/WhatsApp/Telegram до менеджера."
+    )
+
+
+@router.message(Command("engagement_tasks"))
+async def engagement_tasks(message: Message):
+    await message.answer(
+        "Ручные задания для роста охвата:\n"
+        "1. Найти 5 свежих постов про бизнес, продажи или заявки.\n"
+        "2. Оставить 5 содержательных комментариев без продажи в лоб.\n"
+        "3. Ответить на 3 релевантные ветки в Threads.\n"
+        "4. Проверить входящие и незавершённые диалоги.\n"
+        "5. CTA дня: «Напишите “аудит” — покажу, где у вас теряются заявки.»\n\n"
+        "Все действия выполняются вручную: без автолайков, автофолловинга и автокомментариев."
+    )
 
 @router.message(Command("positioning"))
 async def positioning(message: Message):
@@ -209,7 +282,7 @@ async def autopost_plan(message: Message, settings: Settings):
 
 @router.message(Command("autopost_now"))
 async def autopost_now(message: Message, settings: Settings):
-    post = post_queue.get_next_publishable()
+    post = best_publishable_post(post_queue)
     if not post: await message.answer("Нет постов для публикации."); return
     await publish_by_id(message, settings, post.id)
 
