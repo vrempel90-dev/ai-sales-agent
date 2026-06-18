@@ -19,7 +19,8 @@ def test_price_question_gives_safe_range_and_asks_question():
     assert reply.lead_score == "warm"
     assert "от 150 000 ₸" in reply.text
     assert "Для какой ниши" in reply.text
-    assert "точную стоимость" in reply.text
+    assert "точную стоимость и сроки" in reply.text
+    assert "владелец подтвердит" not in reply.text.lower()
     assert "30 000 ₸" not in reply.text
     assert "точно сделаю за" not in reply.text.lower()
 
@@ -57,6 +58,8 @@ def test_hot_lead_gets_whatsapp_link_and_summary():
     assert reply.is_hot is True
     assert "https://wa.me/77712841932" in reply.text
     assert "+77712841932" not in reply.text
+    assert "точную стоимость и сроки" in reply.text
+    assert "владелец подтвердит" not in reply.text.lower()
     assert "Ниша: салон красоты" in reply.summary
     assert "Канал: Instagram/Direct" in reply.summary
 
@@ -75,11 +78,11 @@ def test_owner_notification_contains_sales_summary():
     assert "Следующий шаг: Написать клиенту в WhatsApp" in notification
 
 
-def test_payment_is_handed_to_owner_without_accepting_money():
+def test_payment_handoff_does_not_expose_owner_or_accept_money():
     reply = build_lead_reply("Хочу оплатить, куда переводить?", "https://wa.me/7")
     assert reply.is_hot is True
-    assert "передам вас владельцу" in reply.text
-    assert "финальное подтверждение" in reply.text
+    assert "точную стоимость и сроки" in reply.text
+    assert "владел" not in reply.text.lower()
     assert "оплатите" not in reply.text.lower()
 
 
@@ -134,6 +137,32 @@ def test_sales_preview_shows_score_next_step_and_notification():
     assert "Recommended next step:" in answers[0]
     assert "Owner notification preview:" in answers[0]
     assert "Ниша: салон красоты" in answers[0]
+
+
+def test_sales_preview_price_for_salon_uses_natural_pricing_language():
+    message, answers = _owner_message("/sales_preview сколько стоит бот для салона")
+    settings = SimpleNamespace(owner_telegram_id=100, whatsapp_contact_link="https://wa.me/7", whatsapp_phone="")
+    asyncio.run(sales_preview(message, settings))
+    response = answers[0]
+    assert "от 150 000 ₸" in response
+    assert "точную стоимость и сроки" in response
+    assert "владелец подтвердит" not in response.lower()
+
+
+def test_sales_preview_hot_lead_uses_whatsapp_and_keeps_owner_notification():
+    message, answers = _owner_message(
+        "/sales_preview хочу AI-бота для салона, нужно сделать, сколько стоит и как начать?"
+    )
+    settings = SimpleNamespace(owner_telegram_id=100, whatsapp_contact_link="https://wa.me/7", whatsapp_phone="")
+    asyncio.run(sales_preview(message, settings))
+    response = answers[0]
+    assert "Lead score: hot" in response
+    assert "https://wa.me/7" in response
+    assert "точную стоимость и сроки" in response
+    assert "владелец подтвердит" not in response.lower()
+    assert "Owner notification preview:" in response
+    assert "🔥 Горячий лид" in response
+    assert "Запрос:" in response
 
 
 def test_lead_mode_commands_reject_non_owner():
