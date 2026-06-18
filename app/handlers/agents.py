@@ -7,8 +7,12 @@ from app.agents import (
     build_prompt,
     fallback_posts,
     fallback_threads_day_posts,
+    POSITIONING_TEXT,
     safe_threads_post,
+    viral_niche_post,
+    viral_threads_day_posts,
 )
+from app.content_safety import validate_threads_post
 from app.config import Settings
 from app.keyboards import threads_post_keyboard
 from app.ollama_client import ask_ollama, build_ollama_options, test_ollama
@@ -95,10 +99,21 @@ async def show_post(message_or_cb, post: QueuedPost):
     else:
         await message_or_cb.answer(render_post(post), reply_markup=threads_post_keyboard(post.id))
 
+def queue_safe_post(text: str, *, fallback: str, source: str) -> QueuedPost:
+    is_valid, _ = validate_threads_post(text)
+    safe_text = text if is_valid else fallback
+    fallback_valid, reason = validate_threads_post(safe_text)
+    if not fallback_valid:
+        raise ValueError(f"Некорректный fallback Threads: {reason}")
+    return post_queue.add_post(safe_text, source=source)
+
 @router.message(Command("threads_day"))
 async def threads_day(message: Message, settings: Settings):
     posts = fallback_threads_day_posts()[:5]
-    queued = [post_queue.add_post(p) for p in posts]
+    queued = [
+        queue_safe_post(post, fallback=fallback_threads_day_posts()[index], source="threads-day")
+        for index, post in enumerate(posts)
+    ]
     await message.answer(f"Добавил в очередь: {len(queued)} постов.")
     if queued: await show_post(message, queued[0])
 
@@ -107,7 +122,32 @@ async def threads_post(message: Message, settings: Settings):
     topic = arg_text(message)
     if not topic: await message.answer("Добавьте тему после команды. Пример:\n/threads_post AI-бот для салона красоты"); return
     text = safe_threads_post(topic)
-    await show_post(message, post_queue.add_post(text))
+    await show_post(message, queue_safe_post(text, fallback=safe_threads_post("обработка заявок"), source="threads-post"))
+
+@router.message(Command("viral_threads_day"))
+async def viral_threads_day(message: Message):
+    posts = viral_threads_day_posts()
+    queued = [
+        queue_safe_post(post, fallback=fallback_threads_day_posts()[index % 5], source="viral-threads-day")
+        for index, post in enumerate(posts)
+    ]
+    await message.answer(f"Добавил в очередь: {len(queued)} viral draft-постов.")
+    if queued:
+        await show_post(message, queued[0])
+
+@router.message(Command("viral_post"))
+async def viral_post(message: Message):
+    niche = arg_text(message)
+    if not niche:
+        await message.answer("Добавьте нишу после команды. Пример:\n/viral_post клиники")
+        return
+    fallback = viral_niche_post("бизнес")
+    post = queue_safe_post(viral_niche_post(niche), fallback=fallback, source="viral-post")
+    await show_post(message, post)
+
+@router.message(Command("positioning"))
+async def positioning(message: Message):
+    await message.answer(POSITIONING_TEXT)
 
 @router.message(Command("threads_queue"))
 async def threads_queue(message: Message):
@@ -180,6 +220,11 @@ async def autopost_generate(message: Message, settings: Settings):
 async def publish_by_id(message: Message, settings: Settings, pid):
     post = post_queue.get_post(pid)
     if not post: await message.answer("Пост не найден."); return
+    is_valid, reason = validate_threads_post(post.text)
+    if not is_valid:
+        post_queue.mark_failed(post.id, f"safety: {reason}")
+        await message.answer(f"Пост не опубликован: {reason}. Создайте новый premium draft.")
+        return
     try:
         post_queue.approve_post(pid)
         result = await ThreadsClient(settings).publish_text_post(post.text)
@@ -205,10 +250,13 @@ async def threads_rewrite(message: Message, settings: Settings):
     if not text or not text.isdigit(): await message.answer("Добавьте id поста. Пример:\n/threads_rewrite 1"); return
     post=post_queue.get_post(text)
     if not post: await message.answer("Пост не найден."); return
+    fallback = safe_threads_post(post.text)
     try:
         new_text = await ask_ollama(settings, f"Переделай Threads-пост: короче, живее, без спама, с мягким CTA.\n\n{post.text}")
-        await show_post(message, post_queue.update_post(post.id, safe_threads_post(post.text, new_text)))
-    except RuntimeError as e: await message.answer(str(e))
+        rewritten = safe_threads_post(post.text, new_text)
+    except RuntimeError:
+        rewritten = fallback
+    await show_post(message, post_queue.update_post(post.id, rewritten))
 
 @router.message(Command("threads_next"))
 async def threads_next(message: Message):
@@ -227,10 +275,13 @@ async def threads_callback(callback: CallbackQuery, settings: Settings):
     elif action == "rewrite" and pid:
         post = post_queue.get_post(pid)
         if post:
+            fallback = safe_threads_post(post.text)
             try:
                 new_text = await ask_ollama(settings, f"Переделай Threads-пост короче и живее:\n{post.text}")
-                await show_post(callback, post_queue.update_post(pid, safe_threads_post(post.text, new_text)))
-            except RuntimeError as e: await callback.message.answer(str(e))
+                rewritten = safe_threads_post(post.text, new_text)
+            except RuntimeError:
+                rewritten = fallback
+            await show_post(callback, post_queue.update_post(pid, rewritten))
     elif action == "next":
         post = post_queue.get_next_draft(); await show_post(callback, post) if post else await callback.message.answer("Draft-постов нет.")
     await callback.answer()
