@@ -4,12 +4,12 @@ from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from app.config import Settings
-from app.content_safety import validate_threads_post
 from app.post_queue import PostQueue, QueuedPost
 from app.threads_growth import (
     add_strong_unique_post,
     best_publishable_post,
     refill_growth_queue,
+    validate_growth_post,
     viral_fallback,
 )
 from app.threads_client import ThreadsClient, THREADS_NOT_CONFIGURED
@@ -43,7 +43,7 @@ async def generate_post_if_needed(settings: Settings, queue: PostQueue, schedule
         return None
     # Autogeneration is template-first so publishing remains useful when Ollama is unavailable.
     text = viral_fallback(scheduled_hour)
-    is_valid, reason = validate_threads_post(text)
+    is_valid, reason = validate_growth_post(text)
     if not is_valid:
         logger.warning("Generated Threads post failed safety check: %s", reason)
         return None
@@ -70,7 +70,7 @@ async def publish_one_scheduled_post(settings: Settings, queue: PostQueue, sched
         logger.info("Threads scheduler: queue is empty, nothing to publish")
         return False
 
-    is_valid, reason = validate_threads_post(post.text)
+    is_valid, reason = validate_growth_post(post.text)
     if not is_valid:
         queue.mark_failed(post.id, f"safety: {reason}")
         logger.warning("Threads post #%s failed safety check: %s", post.id, reason)

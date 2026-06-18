@@ -8,8 +8,11 @@ from app.threads_growth import (
     add_strong_unique_post,
     best_publishable_post,
     ensure_strong_post,
+    has_strong_cta,
+    is_truncated_or_fragmented,
     refill_growth_queue,
     score_thread_post,
+    validate_growth_post,
 )
 from app.threads_scheduler import generate_post_if_needed
 
@@ -83,6 +86,32 @@ def test_score_distinguishes_strong_from_weak_post():
 
     assert score_thread_post(strong) >= MIN_VIRAL_SCORE
     assert score_thread_post(weak) < MIN_VIRAL_SCORE
+
+
+def test_weak_cta_and_fragmented_posts_are_rejected():
+    weak = VIRAL_THREADS_TEMPLATES[0].rsplit("\n\n", 1)[0] + "\n\nМогу показать схему."
+
+    assert not has_strong_cta(weak)
+    assert not validate_growth_post(weak)[0]
+    assert is_truncated_or_fragmented("Клиент написал")
+
+
+def test_whatsapp_link_makes_threads_post_unpublishable():
+    post = VIRAL_THREADS_TEMPLATES[0] + "\nhttps://wa.me/70000000000"
+
+    assert not validate_growth_post(post)[0]
+    assert score_thread_post(post) < MIN_VIRAL_SCORE
+
+
+def test_forbidden_web_content_fails_growth_validation():
+    post = VIRAL_THREADS_TEMPLATES[0].replace("AI-администратор", "AI-администратор для лендинга")
+
+    assert not validate_growth_post(post)[0]
+
+
+def test_every_viral_template_has_strong_cta_and_valid_length():
+    assert all(has_strong_cta(post) for post in VIRAL_THREADS_TEMPLATES)
+    assert all(validate_growth_post(post)[0] for post in VIRAL_THREADS_TEMPLATES)
 
 
 def test_auto_generate_empty_queue_creates_viral_post(tmp_path):

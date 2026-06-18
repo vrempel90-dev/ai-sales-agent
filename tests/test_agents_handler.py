@@ -93,14 +93,16 @@ def test_unsafe_generated_threads_post_uses_fallback():
 
 
 def test_threads_cta_uses_public_telegram_link(monkeypatch):
-    from app.agents import fallback_threads_post
+    from app.agents import viral_threads_day_posts
 
     monkeypatch.setenv("PUBLIC_TELEGRAM_BOT_LINK", "https://t.me/your_bot_username")
 
-    post = fallback_threads_post("AI-бот для ресторана")
+    posts = viral_threads_day_posts()
 
-    assert "Напишите «бот»" in post
-    assert "https://t.me/your_bot_username" in post
+    assert any("Напишите «бот» в Telegram" in post for post in posts)
+    assert any("https://t.me/your_bot_username" in post for post in posts)
+    assert any("в личку" in post for post in posts)
+    assert not all("https://t.me/your_bot_username" in post for post in posts)
 
 
 def test_viral_threads_day_has_seven_safe_templates():
@@ -112,6 +114,7 @@ def test_viral_threads_day_has_seven_safe_templates():
     assert all(300 <= len(post) <= 700 for post in posts)
     assert all(validate_threads_post(post)[0] for post in posts)
     assert all("AI-" in post or "AI-" in post.upper() for post in posts)
+    assert all("https://wa.me/" not in post for post in posts)
 
 
 def test_viral_niche_post_is_safe_and_ignores_forbidden_niche():
