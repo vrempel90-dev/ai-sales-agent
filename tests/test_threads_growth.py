@@ -9,6 +9,7 @@ from app.threads_growth import (
     best_publishable_post,
     ensure_strong_post,
     has_strong_cta,
+    is_senior_marketing_post,
     is_truncated_or_fragmented,
     refill_growth_queue,
     score_thread_post,
@@ -86,6 +87,33 @@ def test_score_distinguishes_strong_from_weak_post():
 
     assert score_thread_post(strong) >= MIN_VIRAL_SCORE
     assert score_thread_post(weak) < MIN_VIRAL_SCORE
+
+
+def test_senior_marketing_post_passes_and_generic_smm_fails():
+    assert is_senior_marketing_post(VIRAL_THREADS_TEMPLATES[0])
+    assert validate_growth_post(VIRAL_THREADS_TEMPLATES[0])[0]
+    generic = (
+        "Развивайте бренд с качественным контентом.\n\n"
+        "Мы лучшие и используем индивидуальный подход для вашего бизнеса.\n\n"
+        "Подписывайтесь, чтобы узнать больше."
+    )
+    assert not is_senior_marketing_post(generic)
+    assert not validate_growth_post(generic)[0]
+
+
+def test_missing_pain_consequence_or_ai_action_lowers_quality():
+    strong = VIRAL_THREADS_TEMPLATES[0]
+    no_pain = (
+        strong.replace("Ваш админ ответил через 2 часа — клиент уже ушёл.", "Обработка входящих сообщений.")
+        .replace("медленный первый ответ", "обычный первый ответ")
+        .replace("теряются", "поступают")
+    )
+    no_consequence = strong.replace("ушёл", "написал").replace("потеря", "ситуация").replace("конкуренту", "вам")
+    no_ai_action = strong.replace("отвечает сразу, уточняет запрос и передаёт", "существует рядом с")
+
+    assert score_thread_post(no_pain) < score_thread_post(strong)
+    assert score_thread_post(no_consequence) < score_thread_post(strong)
+    assert not validate_growth_post(no_ai_action)[0]
 
 
 def test_weak_cta_and_fragmented_posts_are_rejected():

@@ -1,9 +1,10 @@
 import asyncio
 from types import SimpleNamespace
 
-from app.agents import AGENTS, FORBIDDEN_POST_PHRASES
+from app.agents import AGENTS, FORBIDDEN_POST_PHRASES, MARKETING_ANGLES, VIRAL_THREADS_TEMPLATES
 from app.content_safety import validate_threads_post
 from app.handlers.agents import generate_posts_response, get_command_name
+from app.threads_growth import has_specific_ai_solution, has_strong_cta, validate_growth_post
 
 
 def test_get_agent_by_string_commands():
@@ -115,6 +116,16 @@ def test_viral_threads_day_has_seven_safe_templates():
     assert all(validate_threads_post(post)[0] for post in posts)
     assert all("AI-" in post or "AI-" in post.upper() for post in posts)
     assert all("https://wa.me/" not in post for post in posts)
+
+
+def test_fallback_templates_have_senior_marketing_components():
+    assert len(MARKETING_ANGLES) == 18
+    for post in VIRAL_THREADS_TEMPLATES:
+        assert 300 <= len(post) <= 700
+        assert 2 <= len(post.split("\n\n")) <= 4
+        assert has_specific_ai_solution(post)
+        assert has_strong_cta(post)
+        assert validate_growth_post(post)[0]
 
 
 def test_viral_niche_post_is_safe_and_ignores_forbidden_niche():

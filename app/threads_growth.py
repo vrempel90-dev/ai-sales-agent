@@ -7,15 +7,26 @@ from app.post_queue import PostQueue, QueuedPost
 
 MIN_VIRAL_SCORE = 7
 
-PAIN_WORDS = ("теря", "не дожд", "хаос", "медлен", "забы", "чёрная дыра", "устал", "не обработ")
-CONSEQUENCE_WORDS = ("ушёл", "конкурент", "оплат", "потер", "не попал", "без продаж", "исчез")
+PAIN_WORDS = ("теря", "не дожд", "хаос", "медлен", "забы", "чёрная дыра", "устал",
+              "не обработ", "не успева", "не занос", "пропада", "перегруж",
+              "нет follow up", "ждать")
+CONSEQUENCE_WORDS = ("ушёл", "уходит", "конкурент", "оплат", "потер", "не попал",
+                     "без продаж", "исчез", "сгора", "не дожива", "не запис")
+ECONOMIC_WORDS = ("деньг", "оплат", "реклам", "бюджет", "заяв", "время", "контрол",
+                  "продаж", "лид", "клиент", "запис")
 SOLUTION_WORDS = ("ai бот", "ai чат бот", "ai администратор", "ai менеджер")
-CHANNEL_WORDS = ("direct", "telegram", "whatsapp", "crm", "заяв", "follow-up", "запис")
+SOLUTION_ACTIONS = ("отвечает", "уточняет", "собирает", "передаёт", "передает",
+                    "создаёт заявку", "создает заявку", "напоминает", "доводит",
+                    "квалифицирует", "фиксирует", "сохраняет", "принимает", "закрывает")
+CHANNEL_WORDS = ("direct", "telegram", "whatsapp", "crm", "заяв", "follow up", "запис",
+                 "админ", "клиент", "лид")
 CTA_WORDS = ("напишите аудит", "напишите бот", "напишите разбор", "точки потерь")
 WEAK_PHRASES = ("могу показать схему", "покажу простую схему", "если хотите расскажу",
                 "давайте посмотрим", "могу предложить", "уникальный ai бот",
                 "бесплатная услуга", "гарантированная прибыль", "просто улучшить",
-                "поможет бизнесу")
+                "поможет бизнесу", "развивайте бренд", "повышайте узнаваемость",
+                "качественный контент", "индивидуальный подход", "мы лучшие",
+                "команда профессионалов", "комплексный маркетинг")
 IRRELEVANT = ("сайт", "лендинг", "веб-приложение", "html", "css", "javascript",
               "интернет-магазин", "seo", "дизайн сайта", "smm", "тестовая система",
               "бесконтактные технологии")
@@ -33,6 +44,31 @@ def has_strong_cta(text: str) -> bool:
     has_action = any(word in normalized for word in CTA_WORDS)
     has_destination = any(word in normalized for word in ("личку", "telegram", "direct", "whatsapp", "бот", "разбор"))
     return has_action and has_destination and not any(phrase in normalized for phrase in WEAK_PHRASES)
+
+
+def has_specific_ai_solution(text: str) -> bool:
+    normalized = normalize_thread_text(text)
+    return (
+        any(word in normalized for word in SOLUTION_WORDS)
+        and any(action in normalized for action in SOLUTION_ACTIONS)
+    )
+
+
+def is_senior_marketing_post(text: str) -> bool:
+    normalized = normalize_thread_text(text)
+    first_line = next((line.strip() for line in (text or "").splitlines() if line.strip()), "")
+    return all((
+        bool(first_line) and len(first_line) <= 110,
+        any(word in normalize_thread_text(first_line) for word in PAIN_WORDS + CONSEQUENCE_WORDS),
+        any(word in normalized for word in PAIN_WORDS),
+        any(word in normalized for word in CONSEQUENCE_WORDS),
+        any(word in normalized for word in ECONOMIC_WORDS),
+        has_specific_ai_solution(text),
+        any(word in normalized for word in CHANNEL_WORDS),
+        has_strong_cta(text),
+        not any(phrase in normalized for phrase in WEAK_PHRASES),
+        not any(phrase in normalized for phrase in IRRELEVANT),
+    ))
 
 
 def is_truncated_or_fragmented(text: str) -> bool:
@@ -59,14 +95,18 @@ def validate_growth_post(text: str) -> tuple[bool, str]:
         return False, "WhatsApp-ссылка запрещена в публичном Threads-посте"
     if any(phrase in normalized for phrase in IRRELEVANT):
         return False, "запрещённая тема"
-    if not any(word in normalized for word in SOLUTION_WORDS):
-        return False, "нет AI-бота как решения"
+    if not has_specific_ai_solution(stripped):
+        return False, "нет конкретного AI-бота как решения"
     if not any(word in normalized for word in PAIN_WORDS):
         return False, "нет боли владельца"
     if not any(word in normalized for word in CONSEQUENCE_WORDS):
         return False, "нет последствия"
+    if not any(word in normalized for word in ECONOMIC_WORDS):
+        return False, "нет коммерческого смысла"
     if not has_strong_cta(stripped):
         return False, "нет сильного CTA"
+    if not is_senior_marketing_post(stripped):
+        return False, "текст не проходит Senior Marketing Brain"
     valid, reason = validate_threads_post(stripped)
     return (valid, reason if not valid else "ok")
 
@@ -78,7 +118,8 @@ def score_thread_post(text: str) -> int:
     score = 0
     score += 2 if any(word in normalized for word in PAIN_WORDS) else -2
     score += 2 if any(word in normalized for word in CONSEQUENCE_WORDS) else -2
-    score += 2 if any(word in normalized for word in SOLUTION_WORDS) else -4
+    score += 2 if has_specific_ai_solution(text) else -5
+    score += 2 if any(word in normalized for word in ECONOMIC_WORDS) else -3
     score += 1 if any(word in normalized for word in CHANNEL_WORDS) else -1
     score += 4 if has_strong_cta(text) else -8
     first_line = next((line.strip() for line in (text or "").splitlines() if line.strip()), "")
@@ -86,6 +127,7 @@ def score_thread_post(text: str) -> int:
     score += 1 if 300 <= len((text or "").strip()) <= 700 else -2
     score -= 5 * sum(phrase in normalized for phrase in WEAK_PHRASES)
     score -= 10 * sum(phrase in normalized for phrase in IRRELEVANT)
+    score += 2 if is_senior_marketing_post(text) else -5
     if any(marker in (text or "").lower() for marker in WHATSAPP_MARKERS):
         return -20
     if not validate_growth_post(text)[0]:
