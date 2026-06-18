@@ -12,14 +12,63 @@ CONSEQUENCE_WORDS = ("ушёл", "конкурент", "оплат", "потер
 SOLUTION_WORDS = ("ai бот", "ai чат бот", "ai администратор", "ai менеджер")
 CHANNEL_WORDS = ("direct", "telegram", "whatsapp", "crm", "заяв", "follow-up", "запис")
 CTA_WORDS = ("напишите аудит", "напишите бот", "напишите разбор", "точки потерь")
-WEAK_PHRASES = ("могу показать схему", "уникальный ai-бот", "бесплатная услуга",
-                "гарантированная прибыль", "просто улучшить", "поможет бизнесу")
+WEAK_PHRASES = ("могу показать схему", "покажу простую схему", "если хотите расскажу",
+                "давайте посмотрим", "могу предложить", "уникальный ai бот",
+                "бесплатная услуга", "гарантированная прибыль", "просто улучшить",
+                "поможет бизнесу")
 IRRELEVANT = ("сайт", "лендинг", "веб-приложение", "html", "css", "javascript",
-              "интернет-магазин", "seo", "дизайн сайта", "smm", "тестовая система")
+              "интернет-магазин", "seo", "дизайн сайта", "smm", "тестовая система",
+              "бесконтактные технологии")
+FRAGMENT_LINES = ("клиент написал", "контакт остаётся в telegram", "человек нужен для",
+                  "клиент спросил цену")
+WHATSAPP_MARKERS = ("https://wa.me/", "whatsapp_contact_link", "whatsapp_phone")
 
 
 def normalize_thread_text(text: str) -> str:
     return re.sub(r"[^a-zа-яё0-9]+", " ", (text or "").lower()).strip()
+
+
+def has_strong_cta(text: str) -> bool:
+    normalized = normalize_thread_text(text)
+    has_action = any(word in normalized for word in CTA_WORDS)
+    has_destination = any(word in normalized for word in ("личку", "telegram", "direct", "whatsapp", "бот", "разбор"))
+    return has_action and has_destination and not any(phrase in normalized for phrase in WEAK_PHRASES)
+
+
+def is_truncated_or_fragmented(text: str) -> bool:
+    stripped = (text or "").strip()
+    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+    if len(stripped) < 250 or any(normalize_thread_text(line) in FRAGMENT_LINES for line in lines):
+        return True
+    if not stripped.endswith((".", "!", "?", "»")):
+        return True
+    return bool(re.search(r"\b(для|и|или|что|чтобы|потому что|если|когда)\s*[.!?…]?$", stripped.lower()))
+
+
+def validate_growth_post(text: str) -> tuple[bool, str]:
+    stripped = (text or "").strip()
+    normalized = normalize_thread_text(stripped)
+    if not 300 <= len(stripped) <= 700:
+        return False, "длина должна быть 300–700 символов"
+    paragraphs = [part.strip() for part in re.split(r"\n\s*\n", stripped) if part.strip()]
+    if not 2 <= len(paragraphs) <= 4:
+        return False, "нужно 2–4 абзаца"
+    if is_truncated_or_fragmented(stripped):
+        return False, "пост выглядит оборванным или фрагментированным"
+    if any(marker in stripped.lower() for marker in WHATSAPP_MARKERS):
+        return False, "WhatsApp-ссылка запрещена в публичном Threads-посте"
+    if any(phrase in normalized for phrase in IRRELEVANT):
+        return False, "запрещённая тема"
+    if not any(word in normalized for word in SOLUTION_WORDS):
+        return False, "нет AI-бота как решения"
+    if not any(word in normalized for word in PAIN_WORDS):
+        return False, "нет боли владельца"
+    if not any(word in normalized for word in CONSEQUENCE_WORDS):
+        return False, "нет последствия"
+    if not has_strong_cta(stripped):
+        return False, "нет сильного CTA"
+    valid, reason = validate_threads_post(stripped)
+    return (valid, reason if not valid else "ok")
 
 
 def score_thread_post(text: str) -> int:
@@ -31,12 +80,16 @@ def score_thread_post(text: str) -> int:
     score += 2 if any(word in normalized for word in CONSEQUENCE_WORDS) else -2
     score += 2 if any(word in normalized for word in SOLUTION_WORDS) else -4
     score += 1 if any(word in normalized for word in CHANNEL_WORDS) else -1
-    score += 2 if any(word in normalized for word in CTA_WORDS) else -3
+    score += 4 if has_strong_cta(text) else -8
     first_line = next((line.strip() for line in (text or "").splitlines() if line.strip()), "")
     score += 1 if len(first_line) <= 100 and any(word in normalize_thread_text(first_line) for word in PAIN_WORDS + CONSEQUENCE_WORDS) else -1
     score += 1 if 300 <= len((text or "").strip()) <= 700 else -2
     score -= 5 * sum(phrase in normalized for phrase in WEAK_PHRASES)
     score -= 10 * sum(phrase in normalized for phrase in IRRELEVANT)
+    if any(marker in (text or "").lower() for marker in WHATSAPP_MARKERS):
+        return -20
+    if not validate_growth_post(text)[0]:
+        score -= 6
     return score
 
 
@@ -65,11 +118,11 @@ def viral_fallback(index: int = 0, niche: str | None = None) -> str:
 
 def ensure_strong_post(text: str, fallback_index: int = 0, niche: str | None = None) -> str:
     candidate = (text or "").strip()
-    valid, _ = validate_threads_post(candidate)
+    valid, _ = validate_growth_post(candidate)
     if valid and score_thread_post(candidate) >= MIN_VIRAL_SCORE:
         return candidate
     fallback = viral_fallback(fallback_index, niche)
-    valid, reason = validate_threads_post(fallback)
+    valid, reason = validate_growth_post(fallback)
     if not valid or score_thread_post(fallback) < MIN_VIRAL_SCORE:
         raise ValueError(f"Некорректный viral fallback: {reason}")
     return fallback
@@ -87,7 +140,7 @@ def add_strong_unique_post(
     candidates = [ensure_strong_post(text, fallback_index, niche)]
     candidates.extend(viral_fallback(i) for i in range(len(VIRAL_THREADS_TEMPLATES)))
     for candidate in candidates:
-        if not is_duplicate_post(queue, candidate):
+        if validate_growth_post(candidate)[0] and not is_duplicate_post(queue, candidate):
             return queue.add_post(candidate, source=source, scheduled_hour=scheduled_hour)
     return None
 
