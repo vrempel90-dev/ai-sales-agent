@@ -33,10 +33,38 @@ IRRELEVANT = ("сайт", "лендинг", "веб-приложение", "html
 FRAGMENT_LINES = ("клиент написал", "контакт остаётся в telegram", "человек нужен для",
                   "клиент спросил цену")
 WHATSAPP_MARKERS = ("https://wa.me/", "whatsapp_contact_link", "whatsapp_phone")
+NUMBER_WORDS = {
+    "ноль": "0", "один": "1", "одна": "1", "два": "2", "две": "2", "три": "3",
+    "четыре": "4", "пять": "5", "шесть": "6", "семь": "7", "восемь": "8",
+    "девять": "9", "десять": "10",
+}
+SYNONYMS = {
+    "администратор": "админ", "администратора": "админ", "администратору": "админ",
+    "администратором": "админ", "админа": "админ", "отвечал": "ответил", "ответила": "ответил",
+    "ответили": "ответил", "отвечала": "ответил", "ушел": "ушёл", "уже": "",
+}
+HOOK_KEYWORDS = ("админ", "ответ", "клиент", "ушёл", "уходит", "час", "заяв", "лид", "медлен", "потер")
 
 
 def normalize_thread_text(text: str) -> str:
-    return re.sub(r"[^a-zа-яё0-9]+", " ", (text or "").lower()).strip()
+    raw = re.sub(r"[^a-zа-яё0-9]+", " ", (text or "").lower()).strip()
+    tokens = []
+    for token in raw.split():
+        token = NUMBER_WORDS.get(token, token)
+        token = SYNONYMS.get(token, token)
+        if token:
+            tokens.append(token)
+    return " ".join(tokens)
+
+
+def extract_hook(text: str) -> str:
+    first_line = next((line.strip() for line in (text or "").splitlines() if line.strip()), text or "")
+    return normalize_thread_text(first_line[:180])
+
+
+def _hook_signature(text: str) -> set[str]:
+    hook = extract_hook(text)
+    return {token for token in hook.split() if any(token.startswith(word) or word in token for word in HOOK_KEYWORDS)}
 
 
 def has_strong_cta(text: str) -> bool:
@@ -138,15 +166,40 @@ def score_thread_post(text: str) -> int:
 def posts_are_duplicates(left: str, right: str) -> bool:
     left_normalized = normalize_thread_text(left)
     right_normalized = normalize_thread_text(right)
+    if not left_normalized or not right_normalized:
+        return False
     if left_normalized == right_normalized:
         return True
-    left_prefix = left_normalized[:160]
-    right_prefix = right_normalized[:160]
-    return SequenceMatcher(None, left_prefix, right_prefix).ratio() >= 0.82
+    left_prefix = left_normalized[:180]
+    right_prefix = right_normalized[:180]
+    if left_prefix == right_prefix or SequenceMatcher(None, left_prefix, right_prefix).ratio() >= 0.82:
+        return True
+
+    left_hook = extract_hook(left)
+    right_hook = extract_hook(right)
+    if left_hook and right_hook:
+        hook_ratio = SequenceMatcher(None, left_hook, right_hook).ratio()
+        left_signature = _hook_signature(left)
+        right_signature = _hook_signature(right)
+        overlap = left_signature & right_signature
+        if hook_ratio >= 0.72 and len(overlap) >= 3:
+            return True
+        if {"админ", "клиент"}.issubset(overlap) and any(token.startswith("ответ") for token in overlap) and (
+            "2" in overlap or any(token.startswith("час") for token in overlap) or any(token.startswith("уш") for token in overlap)
+        ):
+            return True
+    return False
+
+
+def duplicate_reference(queue: PostQueue, text: str) -> QueuedPost | None:
+    for post in queue.list_duplicate_guard_posts():
+        if posts_are_duplicates(text, post.text):
+            return post
+    return None
 
 
 def is_duplicate_post(queue: PostQueue, text: str) -> bool:
-    return any(posts_are_duplicates(text, post.text) for post in queue.list_active_and_published_today())
+    return duplicate_reference(queue, text) is not None
 
 
 def viral_fallback(index: int = 0, niche: str | None = None) -> str:
@@ -203,6 +256,29 @@ def refill_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-re
     return added
 
 
+def purge_duplicate_drafts(queue: PostQueue) -> int:
+    skipped = 0
+    seen: list[QueuedPost] = []
+    for post in queue.list_publishable():
+        duplicate = next((item for item in seen if posts_are_duplicates(post.text, item.text)), None)
+        if duplicate is not None:
+            queue.mark_duplicate_skipped(post.id, duplicate_text=post.text, reason=f"duplicate of queued #{duplicate.id}")
+            skipped += 1
+        else:
+            seen.append(post)
+    return skipped
+
+
 def best_publishable_post(queue: PostQueue) -> QueuedPost | None:
+    purge_duplicate_drafts(queue)
     posts = queue.list_publishable()
     return max(posts, key=lambda post: score_thread_post(post.text), default=None)
+
+
+def next_unique_publishable_post(queue: PostQueue) -> QueuedPost | None:
+    for post in sorted(queue.list_publishable(), key=lambda item: score_thread_post(item.text), reverse=True):
+        duplicate = queue.find_duplicate_for_publish(post.id, post.text)
+        if duplicate is None:
+            return post
+        queue.mark_duplicate_skipped(post.id, duplicate_text=post.text, reason=f"duplicate of published #{duplicate.id}")
+    return None

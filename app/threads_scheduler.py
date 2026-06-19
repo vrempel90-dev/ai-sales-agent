@@ -7,7 +7,7 @@ from app.config import Settings
 from app.post_queue import PostQueue, QueuedPost
 from app.threads_growth import (
     add_strong_unique_post,
-    best_publishable_post,
+    next_unique_publishable_post,
     refill_growth_queue,
     validate_growth_post,
     viral_fallback,
@@ -64,12 +64,12 @@ async def publish_one_scheduled_post(settings: Settings, queue: PostQueue, sched
     if not settings.threads_auto_publish:
         logger.info("Threads scheduler: THREADS_AUTO_PUBLISH is disabled")
         return False
-    post = best_publishable_post(queue)
+    post = next_unique_publishable_post(queue)
     if post is None:
         post = await generate_post_if_needed(settings, queue, scheduled_hour)
     if post is None:
-        logger.info("Threads scheduler: queue is empty, nothing to publish")
-        growth_runtime.last_error = "Автопилот не опубликовал пост, потому что не нашёл текст, прошедший quality check."
+        logger.info("Threads scheduler: queue is empty or only duplicates, nothing to publish")
+        growth_runtime.last_error = "Автопилот не опубликовал пост: все drafts дублируют published history или не прошли quality check."
         return False
 
     is_valid, reason = validate_growth_post(post.text)

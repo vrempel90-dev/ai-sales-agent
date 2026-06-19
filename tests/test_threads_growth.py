@@ -172,3 +172,82 @@ def test_irrelevant_website_content_never_survives_generation():
     lowered = result.lower()
     assert all(word not in lowered for word in ("сайт", "лендинг", "веб-приложение"))
     assert "ai-" in lowered
+
+
+def test_normalized_duplicate_detection_catches_two_hours_variants():
+    from app.threads_growth import posts_are_duplicates
+
+    assert posts_are_duplicates(
+        "Ваш админ ответил через 2 часа — клиент уже ушёл",
+        "Ваш администратор ответил через два часа — клиент ушёл",
+    )
+    assert posts_are_duplicates(
+        "Ваш админ ответил через 2 часа — клиент уже ушёл",
+        "Клиент ушёл, пока админ отвечал 2 часа",
+    )
+
+
+def test_duplicate_published_post_is_not_added_again(tmp_path):
+    queue = make_queue(tmp_path)
+    first = queue.add_post(VIRAL_THREADS_TEMPLATES[0], source="test")
+    queue.mark_published(first.id)
+
+    added = add_strong_unique_post(queue, VIRAL_THREADS_TEMPLATES[0], source="test")
+
+    assert added is not None
+    assert added.text != first.text
+    assert queue.get_draft_count() == 1
+
+
+def test_duplicate_after_redeploy_state_reload_is_not_publishable(tmp_path):
+    db_path = tmp_path / "growth.db"
+    queue = PostQueue(str(db_path))
+    published = queue.add_post(VIRAL_THREADS_TEMPLATES[0], source="test")
+    queue.mark_published(published.id)
+
+    reloaded = PostQueue(str(db_path))
+    duplicate = reloaded.add_post(VIRAL_THREADS_TEMPLATES[0], source="after-redeploy")
+
+    from app.threads_growth import next_unique_publishable_post
+
+    assert next_unique_publishable_post(reloaded) is None
+    assert reloaded.get_post(duplicate.id).status == "skipped"
+    assert reloaded.get_duplicate_skipped_count_for_date(__import__("datetime").date.today()) == 1
+
+
+def test_growth_refill_does_not_add_draft_similar_to_published_history(tmp_path):
+    queue = make_queue(tmp_path)
+    published = queue.add_post(VIRAL_THREADS_TEMPLATES[0], source="test")
+    queue.mark_published(published.id)
+
+    added = refill_growth_queue(queue, 3)
+
+    assert len(added) == 3
+    assert all(post.text != VIRAL_THREADS_TEMPLATES[0] for post in added)
+
+
+def test_purge_duplicate_drafts_keeps_threads_queue_unique(tmp_path):
+    from app.threads_growth import purge_duplicate_drafts
+
+    queue = make_queue(tmp_path)
+    keep = queue.add_post(VIRAL_THREADS_TEMPLATES[0], source="test")
+    duplicate = queue.add_post(VIRAL_THREADS_TEMPLATES[0], source="test")
+
+    assert purge_duplicate_drafts(queue) == 1
+    assert queue.get_post(keep.id).status == "draft"
+    assert queue.get_post(duplicate.id).status == "skipped"
+
+
+def test_autopilot_selects_next_draft_when_first_is_duplicate(tmp_path):
+    from app.threads_growth import next_unique_publishable_post
+
+    queue = make_queue(tmp_path)
+    published = queue.add_post(VIRAL_THREADS_TEMPLATES[0], source="published")
+    queue.mark_published(published.id)
+    duplicate = queue.add_post(VIRAL_THREADS_TEMPLATES[0], source="duplicate")
+    unique = queue.add_post(VIRAL_THREADS_TEMPLATES[1], source="unique")
+
+    selected = next_unique_publishable_post(queue)
+
+    assert selected.id == unique.id
+    assert queue.get_post(duplicate.id).status == "skipped"
