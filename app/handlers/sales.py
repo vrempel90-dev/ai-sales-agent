@@ -8,40 +8,34 @@ from app.lead_hunter import lead_hunter_reply_notification
 
 router = Router()
 
-START_TEXT = """Я AI Growth Manager для Threads.
+START_TEXT = """🚀 AI Growth Marketer
 
-Работаю как SMM-директор, маркетолог, копирайтер, sales-агент и Safe Autopilot в одном лице.
+Я веду твой Threads-аккаунт как маркетолог, SMM и sales-ассистент.
 
-Моя задача:
-вести страницу живо, не шаблонно, растить доверие, подписчиков и заявки на AI-ботов.
+Моя цель — растить доверие, находить клиентов и приводить заявки на AI-ботов.
 
-Главное:
-• /growth_report — что происходит сегодня
-• /growth_plan — стратегия дня
-• /autopilot_status — работает ли автопилот
+Что я делаю каждый день:
+📝 Пишу и публикую посты
+💬 Ищу ветки и готовлю комментарии
+🔎 Нахожу потенциальных клиентов
+🤝 Готовлю первые сообщения
+🔥 Помогаю доводить горячих лидов до заявки
+📊 Вечером даю отчёт
 
-Посты:
-• /threads_next — посмотреть следующий пост
-• /threads_queue — очередь
-• /growth_rebuild — пересобрать очередь
-• /growth_refill — пополнить очередь
+Главное меню:
+📊 /today — отчёт за сегодня
+🧠 /plan — план на день
+📝 /content — посты и контент
+🔎 /leads — клиенты и лиды
+💬 /sales — продажи и ответы
+⚙️ /status — статус автопилота
+🛠 /system — здоровье системы
 
-Продажи:
-• /sales_preview текст — проверить ответ клиенту
-• /sales_status — статус продаж
-• /whatsapp_status — WhatsApp
-
-Поиск клиентов:
-• /lead_scan текст — проверить потенциального клиента
-• /lead_queue — очередь лидов
-• /lead_next — следующий лид
-• /lead_autopilot_status — статус автоотправки
-• /lead_autopilot_run — безопасно обработать 1 лида
-• /lead_report — отчёт
-
-Система:
-• /health
-• /ollama_test
+Что делать каждый день:
+1. Утром нажми /plan
+2. Днём смотри /content и /leads
+3. Если клиент ответил — вставь сообщение в /sales
+4. Вечером смотри /today
 """
 
 @router.message(CommandStart())
@@ -135,6 +129,18 @@ async def sales_preview(message: Message, settings: Settings):
         f"Owner notification preview:\n{notification}"
     )
 
+
+@router.message(Command("sales"))
+async def sales_menu(message: Message):
+    await message.answer(
+        "💬 Продажи\n\n"
+        "Команды:\n"
+        "• /sales_preview текст — проверить ответ клиенту\n"
+        "• /dm_preview текст — DM-ответ\n"
+        "• /sales_status — статус продаж\n"
+        "• /whatsapp_status — WhatsApp handoff\n\n"
+        "Что дальше:\n1. Вставь сообщение клиента в /sales_preview\n2. Если лид горячий — передай владельцу"
+    )
 
 @router.message(Command("sales_status"))
 async def sales_status(

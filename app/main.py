@@ -15,22 +15,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 BOT_COMMANDS = [
-    BotCommand(command="start", description="AI Growth Manager"),
-    BotCommand(command="growth_report", description="Что происходит сегодня"),
-    BotCommand(command="growth_plan", description="Стратегия дня"),
-    BotCommand(command="autopilot_status", description="Работает ли автопилот"),
-    BotCommand(command="threads_next", description="Следующий пост"),
-    BotCommand(command="threads_queue", description="Очередь постов"),
-    BotCommand(command="growth_rebuild", description="Пересобрать очередь"),
-    BotCommand(command="growth_refill", description="Пополнить очередь"),
-    BotCommand(command="sales_preview", description="Проверить ответ клиенту"),
-    BotCommand(command="sales_status", description="Статус продаж"),
-    BotCommand(command="whatsapp_status", description="WhatsApp"),
-    BotCommand(command="lead_scan", description="Проверить лида"),
-    BotCommand(command="lead_queue", description="Очередь лидов"),
-    BotCommand(command="lead_autopilot_status", description="Статус автоотправки"),
-    BotCommand(command="lead_autopilot_run", description="Обработать 1 лида"),
-    BotCommand(command="health", description="Статус системы"),
+    BotCommand(command="start", description="главное меню"),
+    BotCommand(command="today", description="отчёт за сегодня"),
+    BotCommand(command="plan", description="план на день"),
+    BotCommand(command="content", description="контент"),
+    BotCommand(command="leads", description="клиенты"),
+    BotCommand(command="sales", description="продажи"),
+    BotCommand(command="status", description="автопилот"),
+    BotCommand(command="system", description="система"),
+    BotCommand(command="next_post", description="следующий пост"),
+    BotCommand(command="next_lead", description="следующий лид"),
 ]
 
 async def run_daily_growth_report(bot: Bot, settings) -> None:
