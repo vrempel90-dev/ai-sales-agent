@@ -190,3 +190,46 @@ Safe Lead Hunter Agent помогает безопасно оценивать п
 - `/lead_send id` — подготовить ручную отправку с safety guard и лимитами;
 - `/lead_skip id` — пропустить лида;
 - `/lead_report` — отчёт по найденным лидам, очереди, отправкам и нишам.
+
+## Lead Outreach Autopilot
+
+Lead Outreach Autopilot — безопасный режим первого касания для лидов из Lead Hunter outreach queue. Он технически умеет обработать одного лида за запуск, проверить score, safety guard, duplicate guard, дневной лимит и наличие разрешённого официального канала DM.
+
+Безопасные значения по умолчанию:
+
+```env
+LEAD_HUNTER_AUTOPILOT_ENABLED=false
+LEAD_HUNTER_AUTO_DM_ENABLED=false
+LEAD_HUNTER_APPROVAL_REQUIRED=true
+LEAD_HUNTER_DAILY_DM_LIMIT=3
+LEAD_HUNTER_MIN_SCORE=80
+LEAD_HUNTER_ALLOWED_CHANNELS=telegram
+LEAD_HUNTER_REQUIRE_PERSONALIZATION=true
+LEAD_HUNTER_BLOCK_IF_NO_OFFICIAL_CHANNEL=true
+```
+
+Что важно:
+
+- автопилот может отправлять первое сообщение только через разрешённый официальный канал, который реально поддерживается проектом;
+- сейчас безопасный путь для большинства лидов остаётся manual-send: если у лида нет официального Telegram `chat_id`, лид переводится в `ready_for_manual_send`, а текст показывается владельцу;
+- система не имитирует отправку и не помечает лида как `sent`, если официального канала нет;
+- `LEAD_HUNTER_AUTO_DM_ENABLED=false` по умолчанию, поэтому авто-DM выключен до явного включения;
+- `LEAD_HUNTER_APPROVAL_REQUIRED=true` по умолчанию, поэтому отправка требует подтверждения владельца;
+- дневной лимит по умолчанию — 3 сообщения;
+- safety guard запрещает WhatsApp-ссылки, цены, агрессивные фразы, одинаковый текст, длинные сообщения и массовый шаблон без персонализации;
+- нет scraping;
+- нет browser automation, Selenium или Playwright для обхода Threads/Instagram/Meta;
+- нет mass DM;
+- нет autofollow;
+- нет спама;
+- нет обхода официальных ограничений Meta/Instagram/Threads;
+- нет имитации отправки.
+
+Команды:
+
+- `/lead_autopilot_status` — настройки, лимиты, очередь, наличие официального канала и последние ошибки;
+- `/lead_autopilot_on` — owner-only runtime-включение Lead Outreach Autopilot;
+- `/lead_autopilot_off` — owner-only runtime-выключение;
+- `/lead_autopilot_run` — безопасно обработать максимум 1 лида;
+- `/lead_confirm_send id` — owner-only подтверждение отправки конкретного лида;
+- `/lead_send id` — если авто-DM выключен или нет официального канала, готовит ручную отправку и ставит `ready_for_manual_send`.

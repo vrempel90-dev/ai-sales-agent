@@ -15,10 +15,14 @@ from app.handlers.agents import build_growth_report, render_lead_hunter_status
 def settings(**overrides):
     base = dict(
         lead_hunter_enabled=True,
+        lead_hunter_autopilot_enabled=False,
         lead_hunter_auto_dm_enabled=False,
         lead_hunter_approval_required=True,
         lead_hunter_daily_dm_limit=3,
         lead_hunter_min_score=70,
+        lead_hunter_allowed_channels="telegram",
+        lead_hunter_require_personalization=True,
+        lead_hunter_block_if_no_official_channel=True,
         comment_discovery_enabled=True,
         comment_approval_required=True,
         threads_growth_mode_enabled=False,
@@ -90,7 +94,7 @@ def test_lead_send_manual_without_dm_integration_or_approval():
     _, lead, _ = add_candidate(salon_text(), 70)
     ok, result = prepare_send(lead.id, min_score=70, daily_limit=3, approval_required=True, auto_dm_enabled=False)
     assert not ok
-    assert "Отправьте вручную" in result
+    assert "Требуется подтверждение" in result or "ручной отправки" in result
     assert lead.status == "ready_for_manual_send"
 
 
@@ -129,3 +133,69 @@ def test_sales_closing_notification_for_replied_lead():
     assert "Источник: Lead Hunter" in note
     assert "Sales Closing Agent" in note
     assert "WhatsApp" in note
+
+
+def test_lead_autopilot_run_without_official_channel_ready_manual():
+    from app.lead_hunter import run_autopilot_once
+    _, lead, _ = add_candidate(salon_text(), 70)
+    ok, result = run_autopilot_once(enabled=True, min_score=70, daily_limit=3, auto_dm_enabled=True, approval_required=False, allowed_channels="telegram", require_personalization=True, block_if_no_official_channel=True)
+    assert not ok
+    assert lead.status == "ready_for_manual_send"
+    assert "нет официального канала DM" in result
+    assert lead_hunter.sent_today() == 0
+
+
+def test_safety_guard_blocks_whatsapp_link_and_price_and_duplicate():
+    assert not message_is_safe("Здравствуйте, wa.me/777 могу показать схему")[0]
+    assert not message_is_safe("Здравствуйте, AI-бот стоит 100000₸, могу показать схему")[0]
+    msg = "Здравствуйте. У салон красоты есть заявки. AI-администратор помогает с первым ответом. Могу показать схему."
+    assert not message_is_safe(msg, [msg], True)[0]
+
+
+def test_sent_history_saved_for_official_channel():
+    text = salon_text() + " telegram_chat_id:123456"
+    _, lead, _ = add_candidate(text, 70)
+    ok, result = prepare_send(lead.id, min_score=70, daily_limit=3, approval_required=False, auto_dm_enabled=True, allowed_channels="telegram")
+    assert ok
+    assert "telegram" in result
+    assert lead.status == "sent"
+    assert lead_hunter.sent_history[-1].lead_id == lead.id
+
+
+def _message(user_id=1, text=""):
+    answers = []
+
+    async def answer(text):
+        answers.append(text)
+
+    return SimpleNamespace(from_user=SimpleNamespace(id=user_id), text=text, answer=answer), answers
+
+
+def test_lead_autopilot_on_off_owner_only():
+    import asyncio
+    from app.handlers.agents import lead_autopilot_off, lead_autopilot_on
+    cfg = settings(owner_telegram_id=10)
+    message, answers = _message(user_id=20)
+    asyncio.run(lead_autopilot_on(message, cfg))
+    assert answers == ["Эта команда доступна только владельцу."]
+    owner_message, owner_answers = _message(user_id=10)
+    asyncio.run(lead_autopilot_on(owner_message, cfg))
+    assert "LEAD_HUNTER_AUTOPILOT_ENABLED=true" in owner_answers[0]
+    asyncio.run(lead_autopilot_off(owner_message, cfg))
+    assert "выключен" in owner_answers[-1]
+
+
+def test_lead_confirm_send_requires_owner():
+    import asyncio
+    from app.handlers.agents import lead_confirm_send_cmd
+    _, lead, _ = add_candidate(salon_text(), 70)
+    message, answers = _message(user_id=20, text=f"/lead_confirm_send {lead.id}")
+    asyncio.run(lead_confirm_send_cmd(message, settings(owner_telegram_id=10)))
+    assert answers == ["Эта команда доступна только владельцу."]
+
+
+def test_readme_documents_no_scraping_mass_dm_browser_automation():
+    text = __import__('pathlib').Path('README.md').read_text()
+    assert "нет scraping" in text
+    assert "нет browser automation" in text
+    assert "нет mass DM" in text
