@@ -5,7 +5,7 @@ from aiogram.types import BotCommand
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from app.config import get_settings
-from app.handlers import agents, comments, sales
+from app.handlers import agents, comments, sales, autonomous_threads
 from app.growth_state import growth_runtime
 from app.lead_store import LeadConversationService
 from app.post_queue import PostQueue
@@ -71,6 +71,7 @@ async def main():
     )
     dp.include_router(sales.router)
     dp.include_router(agents.router)
+    dp.include_router(autonomous_threads.router)
     dp.include_router(comments.router)
 
     if settings.threads_auto_posting_enabled:
@@ -79,6 +80,12 @@ async def main():
         logger.info("Auto Threads Posting: disabled")
     if settings.growth_daily_report_enabled and settings.owner_telegram_id is not None:
         asyncio.create_task(run_daily_growth_report(bot, settings))
+    if settings.autonomous_threads_agent_enabled and settings.autonomous_threads_agent_auto_start:
+        agent = autonomous_threads.get_agent(settings)
+        agent.runtime_enabled = True
+        logger.info("Autonomous Threads Growth Agent auto-started")
+        if settings.owner_telegram_id is not None and settings.autonomous_threads_owner_notify:
+            await bot.send_message(settings.owner_telegram_id, agent.startup_summary())
 
     await dp.start_polling(bot)
 

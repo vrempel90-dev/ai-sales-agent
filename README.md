@@ -271,3 +271,54 @@ LEAD_HUNTER_BLOCK_IF_NO_OFFICIAL_CHANNEL=true
 ### Совместимость и проверка после deploy
 
 Старые команды сохранены: `/health`, `/ollama_test`, `/growth_report`, `/growth_plan`, `/autopilot_status`, `/threads_next`, `/threads_queue`, `/lead_scan`, `/lead_queue`, `/lead_next`, `/lead_report`, `/sales_preview`, `/dm_preview`, `/sales_status`, `/whatsapp_status` и технические команды автопилотов. После deploy проверьте `/start`, затем `/plan`, `/content`, `/leads`, `/sales`, `/status`, `/system`, `/today`, `/next_post` и `/next_lead`.
+
+## Autonomous Threads Growth Agent
+
+Autonomous Threads Growth Agent — единый AI Growth Marketer для Threads: SMM Director, Content Agent, Threads Scout, Threads Cleaner, Comment Agent, Lead Hunter, Outreach Agent, Sales Agent, Safety Guard и Daily Report Analyst в одном безопасном runtime-агенте.
+
+Что агент делает сам при включённом автономном режиме:
+- ведёт Threads-аккаунт вокруг цели заявок на AI-ботов и AI-администраторов;
+- планирует 3 поста в день: утро — боль/наблюдение, день — экспертность/ошибка, вечер — оффер/CTA;
+- ищет релевантные Threads по нишам Алматы/Казахстан: салоны, маникюр, косметологи, стоматологии, клиники, барбершопы, массаж, онлайн-школы, эксперты и локальные услуги;
+- чистит мусор: личные посты без бизнеса, мемы, политика, токсичные споры, знакомства, повторы и темы без outreach angle;
+- считает lead score, готовит комментарии и первые DM;
+- в live mode может комментировать/писать DM только при включённых флагах, рабочих часах, лимитах, duplicate guard и safety guard.
+
+Telegram не является control center для ручного подтверждения каждого действия. Он используется только для статуса, ежедневных отчётов, аварийных уведомлений и включения/выключения агента.
+
+Безопасные defaults:
+- `AUTONOMOUS_THREADS_AGENT_ENABLED=false` — агент не включается без решения владельца;
+- `AUTONOMOUS_THREADS_AGENT_AUTO_START=false` — после redeploy не стартует сам, пока владелец явно не включит auto start;
+- `AUTONOMOUS_THREADS_AGENT_DRY_RUN=true` — по умолчанию ничего не публикует и не отправляет;
+- `AUTONOMOUS_THREADS_COMMENTS_ENABLED=false` и `AUTONOMOUS_THREADS_DMS_ENABLED=false` — live comments/DM выключены;
+- `AUTONOMOUS_THREADS_BROWSER_MODE=false` — browser automation выключен.
+
+Как включить:
+1. Для анализа без live-действий установите `AUTONOMOUS_THREADS_AGENT_ENABLED=true` и оставьте `AUTONOMOUS_THREADS_AGENT_DRY_RUN=true`.
+2. Для autostart после Railway redeploy добавьте `AUTONOMOUS_THREADS_AGENT_AUTO_START=true`.
+3. Для live comments/DM отдельно включите `AUTONOMOUS_THREADS_COMMENTS_ENABLED=true`, `AUTONOMOUS_THREADS_DMS_ENABLED=true`, `AUTONOMOUS_THREADS_AGENT_DRY_RUN=false` и настройте browser layer.
+4. Команды владельца: `/agent_on`, `/agent_off`, `/agent_dry_run_on`, `/agent_dry_run_off`, `/agent_run_once`.
+5. Статус и отчёты: `/agent_status`, `/agent_report`, `/agent_plan`, `/agent_history`.
+
+Browser automation — optional layer. Если зависимости браузера или сессия Threads не настроены, основной Telegram-бот не ломается, команды честно показывают `Browser mode is not configured`, а daily report пишет, что autonomous live actions unavailable. Пароли не хранятся в коде: используйте только env/secrets/cookies/session storage, добавленные владельцем. Агент не обходит captcha/checkpoint/login verification.
+
+Stop conditions:
+- captcha;
+- checkpoint;
+- rate limit;
+- action blocked;
+- login issue;
+- предупреждение аккаунта.
+
+При stop condition агент останавливается, сохраняет причину и уведомляет владельца при включённых уведомлениях. Он не пытается решать captcha, обходить защиту или продолжать действия.
+
+Limits и anti-spam:
+- daily scans/comments/DM ограничиваются env-переменными;
+- no mass DM;
+- no fake sending;
+- no duplicate comments;
+- no duplicate DMs;
+- один профиль нельзя контактировать повторно минимум 14 дней;
+- первый touch без ссылок и без цены.
+
+Daily report в 21:00 Asia/Almaty включает контент, поиск, мусор, релевантные ветки, comments sent/prepared/skipped, DM sent/closed/skipped/manual unavailable, лиды, ошибки и рекомендацию на завтра.

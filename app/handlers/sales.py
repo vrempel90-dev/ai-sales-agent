@@ -28,12 +28,14 @@ START_TEXT = """🚀 AI Growth Marketer
 📝 /content — посты и контент
 🔎 /leads — клиенты и лиды
 💬 /sales — продажи и ответы
+🤖 /agent_status — автономный Threads-агент
+📊 /agent_report — отчёт автономного агента
 ⚙️ /status — статус автопилота
 🛠 /system — здоровье системы
 
 Что делать каждый день:
 1. Утром нажми /plan
-2. Днём смотри /content и /leads
+2. Днём смотри /agent_status, /content и /leads
 3. Если клиент ответил — вставь сообщение в /sales
 4. Вечером смотри /today
 """
