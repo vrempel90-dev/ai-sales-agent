@@ -80,6 +80,13 @@ class Settings:
     comment_min_relevance_score: int = 70
     comment_report_hour: int = 20
     comment_report_timezone: str = "Asia/Almaty"
+    lead_hunter_enabled: bool = True
+    lead_hunter_auto_dm_enabled: bool = False
+    lead_hunter_approval_required: bool = True
+    lead_hunter_daily_dm_limit: int = 3
+    lead_hunter_min_score: int = 70
+    lead_hunter_report_hour: int = 21
+    lead_hunter_timezone: str = "Asia/Almaty"
 
     @property
     def threads_api_configured(self) -> bool:
@@ -142,4 +149,11 @@ def get_settings() -> Settings:
         comment_min_relevance_score=_int_env("COMMENT_MIN_RELEVANCE_SCORE", 70),
         comment_report_hour=_int_env("COMMENT_REPORT_HOUR", 20),
         comment_report_timezone=os.getenv("COMMENT_REPORT_TIMEZONE", "Asia/Almaty").strip(),
+        lead_hunter_enabled=_bool_env("LEAD_HUNTER_ENABLED", "true"),
+        lead_hunter_auto_dm_enabled=_bool_env("LEAD_HUNTER_AUTO_DM_ENABLED", "false"),
+        lead_hunter_approval_required=_bool_env("LEAD_HUNTER_APPROVAL_REQUIRED", "true"),
+        lead_hunter_daily_dm_limit=max(1, _int_env("LEAD_HUNTER_DAILY_DM_LIMIT", 3)),
+        lead_hunter_min_score=_int_env("LEAD_HUNTER_MIN_SCORE", 70),
+        lead_hunter_report_hour=_int_env("LEAD_HUNTER_REPORT_HOUR", 21),
+        lead_hunter_timezone=os.getenv("LEAD_HUNTER_TIMEZONE", "Asia/Almaty").strip(),
     )
