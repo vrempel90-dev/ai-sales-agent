@@ -35,6 +35,8 @@ START_TEXT = """Я AI Growth Manager для Threads.
 • /lead_scan текст — проверить потенциального клиента
 • /lead_queue — очередь лидов
 • /lead_next — следующий лид
+• /lead_autopilot_status — статус автоотправки
+• /lead_autopilot_run — безопасно обработать 1 лида
 • /lead_report — отчёт
 
 Система:

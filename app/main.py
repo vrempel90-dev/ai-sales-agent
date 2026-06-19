@@ -28,6 +28,8 @@ BOT_COMMANDS = [
     BotCommand(command="whatsapp_status", description="WhatsApp"),
     BotCommand(command="lead_scan", description="Проверить лида"),
     BotCommand(command="lead_queue", description="Очередь лидов"),
+    BotCommand(command="lead_autopilot_status", description="Статус автоотправки"),
+    BotCommand(command="lead_autopilot_run", description="Обработать 1 лида"),
     BotCommand(command="health", description="Статус системы"),
 ]
 
