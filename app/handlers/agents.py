@@ -245,10 +245,13 @@ async def viral_post(message: Message):
 
 
 def render_lead_hunter_status(settings: Settings) -> str:
+    lead_outreach_enabled = lead_hunter.enabled(
+        getattr(settings, "lead_hunter_autopilot_enabled", False)
+    )
     return (
         "Safe Lead Hunter Agent status\n"
         f"enabled: {'yes' if settings.lead_hunter_enabled else 'no'}\n"
-        f"autopilot enabled: {'yes' if lead_hunter.enabled(getattr(settings, 'lead_hunter_autopilot_enabled', False)) else 'no'}\n"
+        f"autopilot enabled: {'yes' if lead_outreach_enabled else 'no'}\n"
         f"auto DM enabled: {'yes' if settings.lead_hunter_auto_dm_enabled else 'no'}\n"
         f"approval required: {'yes' if settings.lead_hunter_approval_required else 'no'}\n"
         f"allowed channels: {getattr(settings, 'lead_hunter_allowed_channels', 'telegram')}\n"
@@ -372,6 +375,9 @@ async def lead_skip_cmd(message: Message):
 
 @router.message(Command("lead_report"))
 async def lead_report_cmd(message: Message, settings: Settings):
+    lead_outreach_enabled = lead_hunter.enabled(
+        getattr(settings, "lead_hunter_autopilot_enabled", False)
+    )
     niches = {}
     for i in lead_hunter.items:
         niches[i.niche] = niches.get(i.niche, 0) + 1
@@ -379,7 +385,7 @@ async def lead_report_cmd(message: Message, settings: Settings):
         "Safe Lead Hunter report\n"
         f"leads found/scanned: {lead_hunter.scanned_count}\n"
         f"in queue: {len(lead_hunter.drafts())}\n"
-        f"autopilot enabled: {'yes' if lead_hunter.enabled(getattr(settings, 'lead_hunter_autopilot_enabled', False)) else 'no'}\n"
+        f"autopilot enabled: {'yes' if lead_outreach_enabled else 'no'}\n"
         f"messages sent: {lead_hunter.sent_today()} / {settings.lead_hunter_daily_dm_limit}\n"
         f"ready_for_manual_send: {lead_hunter.ready_for_manual_send_count()}\n"
         f"sent history: {len(lead_hunter.sent_history)}\n"
@@ -481,6 +487,9 @@ async def growth_report(message: Message, settings: Settings):
 @router.message(Command("autopilot_status"))
 async def autopilot_status(message: Message, settings: Settings):
     today = datetime.now(timezone.utc).date()
+    lead_outreach_enabled = lead_hunter.enabled(
+        getattr(settings, "lead_hunter_autopilot_enabled", False)
+    )
     await message.answer(
         "Safe Autopilot status\n"
         f"autopilot enabled: {'yes' if growth_runtime.enabled(settings.growth_autopilot_enabled) else 'no'}\n"
@@ -499,10 +508,10 @@ async def autopilot_status(message: Message, settings: Settings):
         f"WhatsApp status: {'configured' if settings.whatsapp_contact_link or settings.whatsapp_phone else 'not configured'}\n\n"
         "Lead Hunter:\n"
         f"enabled: {'yes' if settings.lead_hunter_enabled else 'no'}\n"
-        f"autopilot enabled: {'yes' if lead_hunter.enabled(getattr(settings, 'lead_hunter_autopilot_enabled', False)) else 'no'}\n"
+        f"autopilot enabled: {'yes' if lead_outreach_enabled else 'no'}\n"
         f"auto DM enabled: {'yes' if settings.lead_hunter_auto_dm_enabled else 'no'}\n"
         f"approval required: {'yes' if settings.lead_hunter_approval_required else 'no'}\n"
-        f"Lead Outreach Autopilot enabled: {'yes' if lead_hunter.enabled(getattr(settings, "lead_hunter_autopilot_enabled", False)) else 'no'}\n"
+        f"Lead Outreach Autopilot enabled: {'yes' if lead_outreach_enabled else 'no'}\n"
         f"auto DM enabled: {'yes' if settings.lead_hunter_auto_dm_enabled else 'no'}\n"
         f"official channel: {'yes' if any(official_channel_available(i, getattr(settings, 'lead_hunter_allowed_channels', 'telegram')) for i in lead_hunter.drafts()) else 'no'}\n"
         f"daily limit: {settings.lead_hunter_daily_dm_limit}\n"
