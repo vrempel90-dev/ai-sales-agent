@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 import os
 from app.growth_content import CTA_BY_TYPE, VIRAL_THREADS_TEMPLATES
+from app.prompts.growth_marketer_master_prompt import build_growth_marketer_prompt
 
 @dataclass(frozen=True)
 class Agent:
@@ -263,7 +264,8 @@ AGENTS = {c: Agent(c,n,b,d,STYLE+"\n"+s,t,e) for c,n,b,d,s,t,e in _defs}
 
 def build_prompt(command: str, text: str) -> str:
     a = AGENTS[command]
-    return f"{a.system_instructions}\n\nЗадача: {a.user_template.format(input=text or 'не указан')}"
+    task = "content" if command in {"/posts", "/threads", "/hooks", "/comment"} else ("sales" if command in {"/dm", "/objection", "/followup", "/qualify", "/script", "/close"} else "content")
+    return build_growth_marketer_prompt(task, f"{a.system_instructions}\n\n{a.user_template.format(input=text or 'не указан')}")
 
 def agents_help() -> str:
     blocks = []

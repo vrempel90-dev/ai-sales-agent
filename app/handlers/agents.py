@@ -121,6 +121,52 @@ async def run_prompt(message: Message, settings: Settings, command: str, text: s
 @router.message(Command("agents"))
 async def cmd_agents(message: Message): await message.answer(agents_help())
 
+@router.message(Command("content"))
+async def content_menu(message: Message):
+    await message.answer(
+        "📝 Контент\n\n"
+        "Команды:\n"
+        "• /next_post — следующий пост\n"
+        "• /posts — очередь постов\n"
+        "• /refill — пополнить очередь\n"
+        "• /rebuild — пересобрать очередь\n"
+        "• /viral_post тема — пост на тему\n\n"
+        "Что дальше:\n1. Проверь /next_post\n2. Если очередь слабая — нажми /rebuild"
+    )
+
+@router.message(Command("leads"))
+async def leads_menu(message: Message):
+    await message.answer(
+        "🔎 Клиенты\n\n"
+        "Команды:\n"
+        "• /find_leads — найти клиентов\n"
+        "• /next_lead — следующий лид\n"
+        "• /lead_queue — очередь лидов\n"
+        "• /lead_report — отчёт по лидам\n"
+        "• /lead_scan текст — проверить клиента\n\n"
+        "Что дальше:\n1. Проверь /next_lead\n2. Для нового профиля используй /lead_scan"
+    )
+
+@router.message(Command("find_leads"))
+async def find_leads(message: Message):
+    await message.answer(
+        "🔎 Поиск клиентов\n\n"
+        "Я безопасно работаю в режиме prepared/manual: без mass DM и fake sending.\n\n"
+        "Что сделать:\n1. Найди бизнес-профиль в целевой нише\n2. Скопируй био/пост/описание\n3. Отправь: /lead_scan текст\n4. Лучший лид появится в /next_lead"
+    )
+
+@router.message(Command("system"))
+async def system_menu(message: Message):
+    await message.answer(
+        "🛠 Система\n\n"
+        "Команды:\n"
+        "• /health — здоровье бота\n"
+        "• /ollama_test — проверка модели\n"
+        "• /autopilot_status — технический статус автопилота\n"
+        "• /growth_report — полный growth-отчёт\n\n"
+        "Что дальше:\n1. Если есть ошибка — начни с /health\n2. Для модели проверь /ollama_test"
+    )
+
 
 for _profile_command, _profile_mode in {
     "profile_scan": "scan",
@@ -328,7 +374,7 @@ async def lead_queue_cmd(message: Message):
         return
     await message.answer("\n\n".join(f"#{i.id} — {i.niche}, score {i.score}, status {i.status}\nSource: {i.source_text[:90]}\nDraft: {i.draft_message}" for i in items))
 
-@router.message(Command("lead_next"))
+@router.message(Command("lead_next", "next_lead"))
 async def lead_next_cmd(message: Message):
     lead = next_lead()
     if not lead:
@@ -428,35 +474,53 @@ def build_growth_report(settings: Settings) -> str:
     weak_positioning_risk = bool(published) and not all(is_senior_marketing_post(p.text) for p in published)
     q = queue_smm_quality(post_queue)
     return (
-        "AI Growth Manager — growth report\n"
+        "📊 AI Growth Marketer — отчёт за день\n\n"
+        "🧭 Главный блок:\n"
+        f"✅ Overall status: {'работает' if not growth_runtime.last_error else 'нужна проверка'}\n"
+        f"✅ Today progress: посты {len(published)}, лиды {lead_hunter.added_count}, комментарии {comment_discovery.posted_today()}\n"
+        "➡️ Next action: проверь /next_post и /next_lead\n"
+        f"⚠️ Errors: {growth_runtime.last_error or lead_hunter.last_error or 'нет'}\n\n"
+        "📝 Контент:\n"
+        f"• опубликовано: {len(published)}\n"
+        f"• очередь: {post_queue.get_draft_count()} draft\n"
+        f"• лучший angle: заявки / Direct / CRM\n"
         f"Опубликовано сегодня: {len(published)}\n"
         f"Посты: {', '.join('#' + p.id for p in published) or 'нет'}\n"
         f"Draft в очереди: {post_queue.get_draft_count()}\n"
-        f"Добавлено автопилотом: {growth_runtime.posts_added}\n"
-        f"duplicate skipped today: {post_queue.get_duplicate_skipped_count_for_date(today)}\n"
-        f"last duplicate skipped: {last_duplicate_text}\n"
+        f"Добавлено автопилотом: {growth_runtime.posts_added}\n\n"
+        "💬 Комментарии:\n"
+        f"• найдено веток: {comment_discovery.found_count}\n"
+        f"• опубликовано/подготовлено: {comment_discovery.posted_today()} / {len(comment_discovery.drafts())}\n"
+        "• лучший комментарий: короткий полезный инсайт без ссылки и цены\n\n"
+        "🔎 Лиды:\n"
+        f"• найдено: {lead_hunter.added_count}\n"
+        f"• score 80+: {sum(1 for i in lead_hunter.items if i.score >= 80)}\n"
+        f"• top niches: {', '.join(sorted({i.niche for i in lead_hunter.items})) or 'нет'}\n"
+        f"• ready for manual: {lead_hunter.ready_for_manual_send_count()}\n\n"
+        "🔥 Продажи:\n"
+        "• входящие: Sales DM Agent\n"
+        f"• hot leads: {lead_hunter.hot_replies}\n"
+        f"• handoff: {'настроен' if settings.whatsapp_contact_link or settings.whatsapp_phone else 'не настроен'}\n\n"
+        "⚠️ Ошибки:\n"
+        f"• API: {growth_runtime.last_error or 'нет'}\n"
+        "• safety: no spam / no mass DM / manual-first\n"
+        f"• limits: duplicate skipped today: {post_queue.get_duplicate_skipped_count_for_date(today)}\n"
+        f"last duplicate skipped: {last_duplicate_text}\n\n"
+        "🧠 Рекомендация на завтра:\n"
+        f"{'Рекомендация: выполнить /growth_rebuild.' if q['template_risk'] == 'high' else 'держать микс форматов, angles и целей'}\n\n"
+        "🔧 Технический блок:\n"
         f"Threads API errors: {growth_runtime.last_error or 'нет'}\n"
-        "Лиды/hot leads: обрабатываются Sales DM Agent\n"
         f"Ollama: модель {settings.ollama_model}, fallback-first активен\n"
-        f"WhatsApp handoff: {'настроен' if settings.whatsapp_contact_link or settings.whatsapp_phone else 'не настроен'}\n"
         f"Last autopilot action: {growth_runtime.last_action}\n"
         f"Last autopilot error: {growth_runtime.last_error or 'нет'}\n\n"
         "Marketing quality:\n"
         "• позиционирование: AI-боты / заявки / CRM\n"
-        "• оффер дня: найду точки потери заявок и покажу, какой AI-бот их закроет\n"
         f"• посты сегодня ведут к личке: {'yes' if posts_lead_to_dm else 'no'}\n"
         f"• есть риск слабого позиционирования: {'yes' if weak_positioning_risk else 'no'}\n\n"
         "SMM quality:\nSMM Director Report:\n"
         f"• форматов в очереди: {q['formats_count']}\n"
         f"• уникальных angles в очереди: {q['unique_angles']}\n"
         f"• повторяющиеся angles: {', '.join(q['repeated_angles']) if q['repeated_angles'] else 'none'}\n"
-        f"• рубрики в очереди: {', '.join(q['rubrics']) or 'none'}\n"
-        f"• CTA повторяется: {'yes' if q['cta_diversity'] == 'weak' else 'no'}\n"
-        f"• банальные посты: {q['banal_count']}\n"
-        f"• есть посты на доверие: {'yes' if q['has_trust'] else 'no'}\n"
-        f"• есть посты на оффер: {'yes' if q['has_offer'] else 'no'}\n"
-        f"• есть посты на экспертность: {'yes' if q['has_expertise'] else 'no'}\n"
-        f"• посты не выглядят одинаково: {'yes' if q['look_unique'] else 'no'}\n"
         f"• риск роботности: {q['template_risk']}\n"
         f"• рекомендация SMM-директора: {'Рекомендация: выполнить /growth_rebuild.' if q['template_risk'] == 'high' else ('Если очередь однотипная — нажмите /growth_rebuild.' if q['template_risk'] == 'medium' else 'держать микс форматов, angles и целей')}\n\n"
         "Lead Hunter:\n"
@@ -465,11 +529,6 @@ def build_growth_report(settings: Settings) -> str:
         f"outreach drafts ready: {len(lead_hunter.drafts())}\n"
         f"messages sent today: {lead_hunter.sent_today()}\n"
         f"ready for manual send: {lead_hunter.ready_for_manual_send_count()}\n"
-        f"blocked by no official channel: {lead_hunter.blocked_no_channel}\n"
-        f"last lead autopilot action: {lead_hunter.last_action}\n"
-        f"replies/hot leads: {lead_hunter.hot_replies}\n"
-        f"top niches: {', '.join(sorted({i.niche for i in lead_hunter.items})) or 'нет'}\n"
-        f"last lead hunter action: {lead_hunter.last_action}\n"
         f"last error: {lead_hunter.last_error or 'нет'}\n\n"
         "Safe Comment Discovery:\n"
         f"Найдено веток/источников: {comment_discovery.found_count}\n"
@@ -478,23 +537,39 @@ def build_growth_report(settings: Settings) -> str:
         f"Ждут подтверждения: {len(comment_discovery.drafts())}"
     )
 
-
-@router.message(Command("growth_report"))
+@router.message(Command("growth_report", "today"))
 async def growth_report(message: Message, settings: Settings):
     await message.answer(build_growth_report(settings))
 
 
-@router.message(Command("autopilot_status"))
+@router.message(Command("autopilot_status", "status"))
 async def autopilot_status(message: Message, settings: Settings):
     today = datetime.now(timezone.utc).date()
     lead_outreach_enabled = lead_hunter.enabled(
         getattr(settings, "lead_hunter_autopilot_enabled", False)
     )
     await message.answer(
+        "⚙️ AI Growth Marketer — автопилот\n\n"
+        "🧭 Главный блок:\n"
+        f"✅ overall status: {'работает' if growth_runtime.enabled(settings.growth_autopilot_enabled) else 'выключен'}\n"
+        f"📊 today progress: постов {post_queue.get_published_count_for_date(today)}, лидов {len(lead_hunter.drafts())}, комментариев {comment_discovery.posted_today()}\n"
+        "➡️ next action: /next_post или /next_lead\n"
+        f"⚠️ errors: {growth_runtime.last_error or lead_hunter.last_error or 'нет'}\n\n"
+        "📌 Модули:\n"
+        f"• постинг: {'✅' if settings.threads_auto_posting_enabled else '⚠️'}\n"
+        f"• комментарии: {'✅' if settings.comment_discovery_enabled else '⚠️'}\n"
+        f"• лиды: {'✅' if settings.lead_hunter_enabled else '⚠️'}\n"
+        f"• outreach: {'✅' if lead_outreach_enabled else '⚠️ manual'}\n"
+        "• sales: ✅\n"
+        f"• daily report: {'✅' if settings.growth_daily_report_enabled else '⚠️'}\n"
+        f"• last action: {growth_runtime.last_action}\n"
+        f"• last error: {growth_runtime.last_error or 'нет'}\n\n"
+        "🔧 Технический блок:\n"
         "Safe Autopilot status\n"
         f"autopilot enabled: {'yes' if growth_runtime.enabled(settings.growth_autopilot_enabled) else 'no'}\n"
         f"growth mode enabled: {'yes' if settings.threads_growth_mode_enabled else 'no'}\n"
         f"viral only: {'yes' if settings.threads_viral_only else 'no'}\n"
+        f"model: {settings.ollama_model}\n"
         f"min queue size: {settings.threads_min_queue_size}\n"
         f"draft count: {post_queue.get_draft_count()}\n"
         f"published today: {post_queue.get_published_count_for_date(today)}\n"
@@ -511,8 +586,6 @@ async def autopilot_status(message: Message, settings: Settings):
         f"autopilot enabled: {'yes' if lead_outreach_enabled else 'no'}\n"
         f"auto DM enabled: {'yes' if settings.lead_hunter_auto_dm_enabled else 'no'}\n"
         f"approval required: {'yes' if settings.lead_hunter_approval_required else 'no'}\n"
-        f"Lead Outreach Autopilot enabled: {'yes' if lead_outreach_enabled else 'no'}\n"
-        f"auto DM enabled: {'yes' if settings.lead_hunter_auto_dm_enabled else 'no'}\n"
         f"official channel: {'yes' if any(official_channel_available(i, getattr(settings, 'lead_hunter_allowed_channels', 'telegram')) for i in lead_hunter.drafts()) else 'no'}\n"
         f"daily limit: {settings.lead_hunter_daily_dm_limit}\n"
         f"sent today: {lead_hunter.sent_today()}\n"
@@ -522,7 +595,6 @@ async def autopilot_status(message: Message, settings: Settings):
         f"approval required: {'yes' if settings.comment_approval_required else 'no'}\n"
         f"drafts: {len(comment_discovery.drafts())}, posted today: {comment_discovery.posted_today()}"
     )
-
 
 @router.message(Command("autopilot_on"))
 async def autopilot_on(message: Message, settings: Settings):
@@ -548,7 +620,7 @@ async def autopilot_off(message: Message, settings: Settings):
     )
 
 
-@router.message(Command("growth_refill"))
+@router.message(Command("growth_refill", "refill"))
 async def growth_refill(message: Message, settings: Settings):
     added = refill_growth_queue(post_queue, settings.threads_min_queue_size, source="growth-refill-command")
     growth_runtime.posts_added += len(added)
@@ -568,7 +640,7 @@ async def growth_refill(message: Message, settings: Settings):
 
 
 
-@router.message(Command("growth_rebuild"))
+@router.message(Command("growth_rebuild", "rebuild"))
 async def growth_rebuild(message: Message, settings: Settings):
     result = rebuild_growth_queue(post_queue, settings.threads_min_queue_size, source="growth-rebuild-command")
     growth_runtime.posts_added += int(result["added"])
@@ -584,21 +656,30 @@ async def growth_rebuild(message: Message, settings: Settings):
         f"Итоговые angles: {', '.join(result['angles'])}"
     )
 
-@router.message(Command("growth_plan"))
+@router.message(Command("growth_plan", "plan"))
 async def growth_plan(message: Message):
+    today = datetime.now(timezone.utc).date().isoformat()
     await message.answer(
-        "План роста Threads на сегодня:\n\n"
-        "1. Главный маркетинговый фокус дня:\nЦель дня: набрать доверие и привести людей в личку на аудит заявок.\n\n"
-        "2. Контент на день:\n"
-        "10:00 — Expert Insight: почему заявки теряются между Direct и CRM\n"
-        "14:00 — Case-style: как салон теряет клиентов на записи\n"
-        "18:00 — Direct CTA: аудит пути заявки\n\n"
-        "3. Рубрики сегодня:\n- экспертность\n- кейс\n- оффер\n\n"
-        "4. Что НЕ повторяем:\n- не используем снова “админ ответил через 2 часа”\n- не повторяем вчерашний CTA\n- не пишем про сайты/лендинги\n\n"
-        "5. Главный оффер дня / CTA дня:\n“Напишите «аудит» — покажу, где теряются заявки.”\n\n"
-        "6. Ожидаемый результат:\nбольше входящих сообщений по словам “аудит”, “бот”, “разбор”."
+        f"🧠 План на день — {today}\n\n"
+        "🎯 Главный маркетинговый фокус дня:\n"
+        "Цель дня: набрать доверие и привести людей в личку на аудит заявок.\n\n"
+        "📝 Контент:\n"
+        "✅ Цель по постам: 3\n"
+        "• 10:00 — Expert Insight: почему заявки теряются между Direct и CRM\n"
+        "• 14:00 — Case-style: как салон теряет клиентов на записи\n"
+        "• 18:00 — Direct CTA: аудит пути заявки\n\n"
+        "💬 Комментарии:\n"
+        "✅ Цель: 5 полезных комментариев без ссылок и продаж\n\n"
+        "🔎 Лиды:\n"
+        "✅ Цель: 5 проверенных бизнес-профилей, 1–2 score 80+\n\n"
+        "🚫 Что НЕ повторяем:\n"
+        "• не используем снова “админ ответил через 2 часа”\n"
+        "• не повторяем вчерашний CTA\n"
+        "• не пишем про сайты/лендинги\n\n"
+        "🔥 Главный оффер дня / CTA дня:\n"
+        "“Напишите «аудит» — покажу, где теряются заявки.”\n\n"
+        "Что дальше:\n1. Проверь /content\n2. Затем /leads\n3. Вечером открой /today"
     )
-
 
 @router.message(Command("engagement_tasks"))
 async def engagement_tasks(message: Message):
@@ -617,7 +698,7 @@ async def engagement_tasks(message: Message):
 async def positioning(message: Message):
     await message.answer(POSITIONING_TEXT)
 
-@router.message(Command("threads_queue"))
+@router.message(Command("threads_queue", "posts"))
 async def threads_queue(message: Message):
     purge_duplicate_drafts(post_queue)
     posts = post_queue.list_posts()
@@ -751,7 +832,7 @@ async def threads_rewrite(message: Message, settings: Settings):
         rewritten = fallback
     await show_post(message, post_queue.update_post(post.id, rewritten))
 
-@router.message(Command("threads_next"))
+@router.message(Command("threads_next", "next_post"))
 async def threads_next(message: Message):
     post = post_queue.get_next_draft()
     if not post: await message.answer("Draft-постов нет."); return

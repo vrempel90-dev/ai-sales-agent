@@ -2,9 +2,9 @@ import asyncio
 from types import SimpleNamespace
 
 from app.comment_discovery import CommentDiscoveryService
-from app.handlers.agents import autopilot_on, build_growth_report, growth_plan, positioning, profile_analysis
+from app.handlers.agents import autopilot_on, build_growth_report, content_menu, growth_plan, leads_menu, positioning, profile_analysis, system_menu
 from app.handlers.comments import comment_generate, comment_next, comment_queue
-from app.handlers.sales import START_TEXT
+from app.handlers.sales import START_TEXT, sales_menu
 from app.main import BOT_COMMANDS
 from tests.test_threads_growth import make_settings
 
@@ -22,20 +22,21 @@ def _message(user_id=1, text=""):
     ), answers
 
 
-def test_start_is_ai_growth_manager_and_not_legacy_menu():
-    assert "AI Growth Manager" in START_TEXT
-    assert "Safe Autopilot" in START_TEXT
+def test_start_is_ai_growth_marketer_and_not_technical_menu():
+    assert "🚀 AI Growth Marketer" in START_TEXT
+    assert "Что я делаю каждый день" in START_TEXT
+    assert "/today" in START_TEXT
+    assert "/plan" in START_TEXT
     assert "25 агентов" not in START_TEXT
-    for command in ("/pricing", "/roi", "/pm", "/tests", "/script", "/close"):
+    for command in ("/pricing", "/roi", "/pm", "/tests", "/script", "/close", "/lead_autopilot_run"):
         assert command not in START_TEXT
 
 
-def test_telegram_menu_is_curated():
+def test_telegram_menu_is_human_curated():
     commands = [item.command for item in BOT_COMMANDS]
     assert commands == [
-        "start", "growth_report", "growth_plan", "autopilot_status",
-        "threads_next", "threads_queue", "growth_rebuild", "growth_refill",
-        "sales_preview", "sales_status", "whatsapp_status", "lead_scan", "lead_queue", "lead_autopilot_status", "lead_autopilot_run", "health",
+        "start", "today", "plan", "content", "leads", "sales",
+        "status", "system", "next_post", "next_lead",
     ]
 
 
@@ -214,3 +215,31 @@ def test_growth_report_has_smm_director_report(tmp_path, monkeypatch):
     assert "форматов в очереди" in report
     assert "риск роботности" in report
     assert "рекомендация SMM-директора" in report
+
+
+def test_beautiful_section_menus_work():
+    for handler, expected in (
+        (content_menu, "📝 Контент"),
+        (leads_menu, "🔎 Клиенты"),
+        (sales_menu, "💬 Продажи"),
+        (system_menu, "🛠 Система"),
+    ):
+        message, answers = _message()
+        asyncio.run(handler(message))
+        assert expected in answers[0]
+        assert "Что дальше" in answers[0]
+
+
+def test_master_prompt_contains_required_sections():
+    from app.prompts.growth_marketer_master_prompt import GROWTH_MARKETER_MASTER_PROMPT
+
+    prompt = GROWTH_MARKETER_MASTER_PROMPT
+    for marker in (
+        "IDENTITY", "OFFER", "TARGET NICHES", "MAIN PAINS", "CONTENT RULES",
+        "COMMENT RULES", "LEAD SCORING", "SALES RULES", "SAFETY",
+    ):
+        assert marker in prompt
+    assert "AI Growth Manager" in prompt
+    assert "SMM Director" in prompt
+    assert "Lead Hunter" in prompt
+    assert "Sales Closing Agent" in prompt

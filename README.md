@@ -233,3 +233,41 @@ LEAD_HUNTER_BLOCK_IF_NO_OFFICIAL_CHANNEL=true
 - `/lead_autopilot_run` — безопасно обработать максимум 1 лида;
 - `/lead_confirm_send id` — owner-only подтверждение отправки конкретного лида;
 - `/lead_send id` — если авто-DM выключен или нет официального канала, готовит ручную отправку и ставит `ready_for_manual_send`.
+
+## AI Growth Marketer UX
+
+`AI Growth Marketer` — единый образ Telegram-агента для Threads: маркетолог, SMM-стратег, таргетолог, копирайтер, lead hunter и sales assistant в одном продукте. Главная цель — растить доверие в Threads и получать заявки на AI-ботов / AI-администраторов, которые помогают бизнесу не терять обращения из Direct, WhatsApp, Telegram и CRM.
+
+### Master prompt
+
+Единый master prompt находится в `app/prompts/growth_marketer_master_prompt.py`. Он объединяет роли AI Growth Manager, SMM Director, Viral Ghostwriter, Threads Content Strategist, Comment Agent, Lead Hunter, Lead Outreach Agent, Sales Closing Agent, Safety Guard и Daily Report Analyst. Старые agent-команды сохранены, но генерация промтов идёт через общий AI Growth Marketer контекст и короткие task instructions.
+
+### Human commands и daily flow
+
+Главное меню Telegram сокращено до человеческих команд:
+
+- `/start` — главное меню
+- `/today` — отчёт за сегодня
+- `/plan` — план на день
+- `/content` — контент
+- `/leads` — клиенты
+- `/sales` — продажи
+- `/status` — автопилот
+- `/system` — система
+- `/next_post` — следующий пост
+- `/next_lead` — следующий лид
+
+Ежедневный сценарий:
+
+1. Утром открыть `/plan`.
+2. Днём проверить `/content` и `/leads`.
+3. Если клиент ответил — вставить сообщение в `/sales_preview` или `/dm_preview`.
+4. Вечером открыть `/today`.
+
+### Menu structure и aliases
+
+Разделы `/content`, `/leads`, `/sales`, `/system` показывают короткие UX-меню с командами следующего шага. Добавлены human aliases: `/today` → `/growth_report`, `/plan` → `/growth_plan`, `/status` → `/autopilot_status`, `/next_post` → `/threads_next`, `/posts` → `/threads_queue`, `/refill` → `/growth_refill`, `/rebuild` → `/growth_rebuild`, `/find_leads` → безопасная инструкция поиска, `/next_lead` → `/lead_next`.
+
+### Совместимость и проверка после deploy
+
+Старые команды сохранены: `/health`, `/ollama_test`, `/growth_report`, `/growth_plan`, `/autopilot_status`, `/threads_next`, `/threads_queue`, `/lead_scan`, `/lead_queue`, `/lead_next`, `/lead_report`, `/sales_preview`, `/dm_preview`, `/sales_status`, `/whatsapp_status` и технические команды автопилотов. После deploy проверьте `/start`, затем `/plan`, `/content`, `/leads`, `/sales`, `/status`, `/system`, `/today`, `/next_post` и `/next_lead`.
