@@ -27,6 +27,10 @@ from app.threads_growth import (
     is_senior_marketing_post,
     refill_growth_queue,
     viral_fallback,
+    metadata_for_text,
+    queue_smm_quality,
+    rebuild_growth_queue,
+    angle_is_blocked,
 )
 from app.comment_discovery import comment_discovery
 from app.growth_state import growth_runtime
@@ -154,7 +158,17 @@ async def cmd_day(message: Message, settings: Settings):
 
 
 def render_post(post: QueuedPost) -> str:
-    return f"Threads draft #{post.id}\nСтатус: {post.status}\n\n{post.text}\n\nПубликация только после подтверждения."
+    meta = metadata_for_text(post.text)
+    rubric = post.rubric or meta["rubric"]
+    angle = post.content_angle or meta["content_angle"]
+    goal = post.goal or meta["goal"]
+    cta = post.cta_type or meta["cta_type"]
+    why = "нужен, чтобы разнообразить прогрев и вести к личке без шаблонного угла"
+    return (
+        f"Threads draft #{post.id}\nСтатус: {post.status}\n"
+        f"Goal: {goal}\nRubric: {rubric}\nAngle: {angle}\nCTA type: {cta}\n"
+        f"Почему нужен: {why}.\n\n{post.text}\n\nПубликация только после подтверждения."
+    )
 
 async def show_post(message_or_cb, post: QueuedPost):
     if isinstance(message_or_cb, CallbackQuery):
@@ -255,6 +269,7 @@ def build_growth_report(settings: Settings) -> str:
     last_duplicate_text = (last_duplicate or {}).get("text", "")[:80] if last_duplicate else "нет"
     posts_lead_to_dm = bool(published) and all(has_strong_cta(p.text) for p in published)
     weak_positioning_risk = bool(published) and not all(is_senior_marketing_post(p.text) for p in published)
+    q = queue_smm_quality(post_queue)
     return (
         "AI Growth Manager — growth report\n"
         f"Опубликовано сегодня: {len(published)}\n"
@@ -272,11 +287,16 @@ def build_growth_report(settings: Settings) -> str:
         "Marketing quality:\n"
         "• позиционирование: AI-боты / заявки / CRM\n"
         "• оффер дня: найду точки потери заявок и покажу, какой AI-бот их закроет\n"
-        "• основной pain angle: медленный первый ответ сжигает оплаченную заявку\n"
-        "• CTA дня: напишите «аудит» в личку\n"
         f"• посты сегодня ведут к личке: {'yes' if posts_lead_to_dm else 'no'}\n"
-        f"• есть риск слабого позиционирования: {'yes' if weak_positioning_risk else 'no'}\n"
-        "• рекомендации на завтра: показать хаос Direct/WhatsApp/Telegram и роль AI-бота до CRM\n\n"
+        f"• есть риск слабого позиционирования: {'yes' if weak_positioning_risk else 'no'}\n\n"
+        "SMM quality:\n"
+        f"• уникальных angles в очереди: {q['unique_angles']}\n"
+        f"• повторяющиеся angles: {', '.join(q['repeated_angles']) if q['repeated_angles'] else 'none'}\n"
+        f"• рубрики в очереди: {', '.join(q['rubrics']) or 'none'}\n"
+        f"• CTA diversity: {q['cta_diversity']}\n"
+        f"• посты не выглядят одинаково: {'yes' if q['look_unique'] else 'no'}\n"
+        f"• риск шаблонности: {q['template_risk']}\n"
+        f"• рекомендация: {'Если очередь однотипная — нажмите /growth_rebuild.' if q['template_risk'] != 'low' else 'держать микс рубрик и angles'}\n\n"
         "Safe Comment Discovery:\n"
         f"Найдено веток/источников: {comment_discovery.found_count}\n"
         f"Comment drafts создано: {len(comment_discovery.items)}\n"
@@ -345,32 +365,46 @@ async def growth_refill(message: Message, settings: Settings):
     added = refill_growth_queue(post_queue, settings.threads_min_queue_size, source="growth-refill-command")
     growth_runtime.posts_added += len(added)
     growth_runtime.last_action = f"очередь пополнена на {len(added)} постов"
+    rubrics = sorted({p.rubric or metadata_for_text(p.text)["rubric"] for p in added})
+    angles = sorted({p.content_angle or metadata_for_text(p.text)["content_angle"] for p in added})
     await message.answer(
-        f"Добавлено strong viral draft-постов: {len(added)}. "
-        f"Сейчас в очереди: {post_queue.get_draft_count()}."
+        f"Senior SMM Growth Director пополнил очередь.\n"
+        f"Добавлено: {len(added)}\n"
+        f"Рубрики: {', '.join(rubrics) or 'нет'}\n"
+        f"Angles: {', '.join(angles) or 'нет'}\n"
+        f"Дубли/повторы отклонены: {post_queue.get_duplicate_skipped_count_for_date(datetime.now(timezone.utc).date())}\n"
+        f"Сейчас draft в очереди: {post_queue.get_draft_count()}."
     )
 
+
+
+@router.message(Command("growth_rebuild"))
+async def growth_rebuild(message: Message, settings: Settings):
+    result = rebuild_growth_queue(post_queue, settings.threads_min_queue_size, source="growth-rebuild-command")
+    growth_runtime.posts_added += int(result["added"])
+    growth_runtime.last_action = f"очередь пересобрана, добавлено {result['added']}"
+    await message.answer(
+        "Очередь пересобрана Senior SMM Growth Director.\n"
+        f"Удалено дублей: {result['removed_duplicates']}\n"
+        f"Удалено слабых/повторяющихся drafts: {result['removed_weak']}\n"
+        f"Добавлено новых: {result['added']}\n"
+        f"Итоговые rubrics: {', '.join(result['rubrics'])}\n"
+        f"Итоговые angles: {', '.join(result['angles'])}"
+    )
 
 @router.message(Command("growth_plan"))
 async def growth_plan(message: Message):
     await message.answer(
-        "План роста Threads на сегодня от AI Growth Manager:\n\n"
-        "1. Главный маркетинговый фокус дня:\n"
-        "Сегодня давим на боль: бизнес теряет не из-за плохой рекламы, а из-за медленного первого ответа.\n\n"
-        "2. Главный оффер дня:\n"
-        "Найду, где у вас теряются заявки, и покажу, какой AI-бот это закроет.\n\n"
-        "3. 3 угла контента:\n"
-        "• медленный админ = потерянная заявка\n"
-        "• Direct/WhatsApp/Telegram = хаос без системы\n"
-        "• AI-бот = первый фильтр до менеджера\n\n"
-        "4. Что публикуем первым:\n"
-        "Пост о заявке, оплаченной рекламой и потерянной до первого ответа.\n\n"
-        "5. Какие CTA используем:\n"
-        "«Напишите “аудит”, “бот” или “разбор” в личку».\n\n"
-        "6. Какие темы не трогаем:\n"
-        "сайты, лендинги, SEO, дизайн, обычный SMM.\n\n"
-        "7. Что должно случиться в личке:\n"
-        "человек пишет «аудит», «бот» или «разбор», после чего Sales DM Agent квалифицирует боль."
+        "План роста Threads на сегодня:\n\n"
+        "1. Главный маркетинговый фокус дня:\nЦель дня: набрать доверие и привести людей в личку на аудит заявок.\n\n"
+        "2. Контент на день:\n"
+        "10:00 — Expert Insight: почему заявки теряются между Direct и CRM\n"
+        "14:00 — Case-style: как салон теряет клиентов на записи\n"
+        "18:00 — Direct CTA: аудит пути заявки\n\n"
+        "3. Рубрики сегодня:\n- экспертность\n- кейс\n- оффер\n\n"
+        "4. Что НЕ повторяем:\n- не используем снова “админ ответил через 2 часа”\n- не повторяем вчерашний CTA\n- не пишем про сайты/лендинги\n\n"
+        "5. Главный оффер дня / CTA дня:\n“Напишите «аудит» — покажу, где теряются заявки.”\n\n"
+        "6. Ожидаемый результат:\nбольше входящих сообщений по словам “аудит”, “бот”, “разбор”."
     )
 
 
@@ -396,7 +430,20 @@ async def threads_queue(message: Message):
     purge_duplicate_drafts(post_queue)
     posts = post_queue.list_posts()
     if not posts: await message.answer("Очередь Threads пустая."); return
-    await message.answer("\n".join(f"#{p.id} — {p.status} — {p.text[:80]}" for p in posts if p.status != "skipped" or p.error_reason != "duplicate"))
+    lines = []
+    for p in posts:
+        if p.status == "skipped" and p.error_reason == "duplicate":
+            continue
+        meta = metadata_for_text(p.text)
+        lines.append(
+            f"#{p.id} — {p.status}\n"
+            f"Rubric: {p.rubric or meta['rubric']}\n"
+            f"Angle: {p.content_angle or meta['content_angle']}\n"
+            f"Niche: {p.niche or meta['niche']}\n"
+            f"CTA: {p.cta_type or meta['cta_type']}\n"
+            f"Preview: {p.text[:90]}"
+        )
+    await message.answer("\n\n".join(lines))
 
 @router.message(Command("health"))
 async def health(message: Message, settings: Settings):
@@ -468,6 +515,11 @@ async def publish_by_id(message: Message, settings: Settings, pid):
         post_queue.mark_duplicate_skipped(post.id, reason=f"duplicate of published #{duplicate.id}")
         growth_runtime.last_error = f"duplicate skipped #{post.id}"
         await message.answer("Пост не опубликован: похожий пост уже был опубликован за последние 7 дней.")
+        return
+    meta = metadata_for_text(post.text)
+    if angle_is_blocked(post_queue, post.content_angle or meta["content_angle"], exclude_id=post.id):
+        post_queue.mark_duplicate_skipped(post.id, reason="angle repeated inside 48h or queue")
+        await message.answer("Пост не опубликован: этот content_angle уже был недавно или слишком часто в очереди.")
         return
     is_valid, reason = validate_threads_post(post.text)
     if not is_valid:

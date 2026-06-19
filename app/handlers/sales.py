@@ -7,39 +7,29 @@ from app.lead_store import LeadConversationService
 
 router = Router()
 
-START_TEXT = """Привет. Я AI Growth Manager для Threads в режиме Safe Autopilot.
+START_TEXT = """Привет. Я AI Growth Manager для Threads: Senior SMM Growth Director + Safe Autopilot + growth strategist + sales-помощник.
 
-Моя задача — вести профиль как команда специалистов: стратег, ghostwriter, growth-маркетолог, аналитик и sales-менеджер.
+Главное:
+• /autopilot_status — всё ли работает
+• /growth_report — отчёт за день
+• /growth_plan — план на сегодня
 
-Я сам:
-• создаю сильные Threads-посты, держу очередь и публикую по расписанию
-• проверяю качество, сильные CTA и дубли
-• готовлю безопасные комментарии к релевантным веткам
-• веду лидов в личке и перевожу горячих клиентов в WhatsApp
+Посты:
+• /threads_next — следующий пост
+• /threads_queue — очередь
+• /growth_refill — пополнить очередь
+• /growth_rebuild — пересобрать очередь
 
-Без автоспама, автолайков, автофолловинга и серых методов.
+Продажи:
+• /sales_preview текст — проверить ответ клиенту
+• /sales_status — статус продаж
+• /whatsapp_status — WhatsApp
 
-Safe Autopilot:
-/autopilot_status · /autopilot_on · /autopilot_off
-/growth_status · /growth_report · /growth_refill · /growth_plan
-/engagement_tasks — необязательное ручное усиление
+Система:
+• /health
+• /ollama_test
 
-Threads:
-/viral_threads_day · /viral_post ниша
-/threads_queue · /threads_next · /threads_publish id
-
-Safe Comment Discovery:
-/comment_discovery_status · /comment_find текст_или_ссылка
-/comment_queue · /comment_next · /comment_report
-
-Profile Intelligence:
-/profile_scan текст · /profile_strategy текст · /profile_posts текст
-
-Sales DM и System:
-/dm_preview сообщение · /sales_preview текст · /sales_status · /whatsapp_status
-/health · /ollama_test · /autopost_status · /positioning
-
-Legacy-команды сохранены для совместимости, но основной режим — AI Growth Manager."""
+Расширенные команды доступны, но в основном меню скрыты."""
 
 @router.message(CommandStart())
 async def start(message: Message):

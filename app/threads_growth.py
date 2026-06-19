@@ -2,6 +2,9 @@ import re
 from difflib import SequenceMatcher
 
 from app.agents import VIRAL_THREADS_TEMPLATES, viral_niche_post
+from app.growth_content import GROWTH_TEMPLATES, GrowthTemplate
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 from app.content_safety import validate_threads_post
 from app.post_queue import PostQueue, QueuedPost
 
@@ -11,17 +14,17 @@ PAIN_WORDS = ("теря", "не дожд", "хаос", "медлен", "забы
               "не обработ", "не успева", "не занос", "пропада", "перегруж",
               "нет follow up", "ждать")
 CONSEQUENCE_WORDS = ("ушёл", "уходит", "конкурент", "оплат", "потер", "не попал",
-                     "без продаж", "исчез", "сгора", "не дожива", "не запис")
+                     "без продаж", "несделанных продаж", "исчез", "сгора", "не дожива", "не запис")
 ECONOMIC_WORDS = ("деньг", "оплат", "реклам", "бюджет", "заяв", "время", "контрол",
                   "продаж", "лид", "клиент", "запис")
-SOLUTION_WORDS = ("ai бот", "ai чат бот", "ai администратор", "ai менеджер")
+SOLUTION_WORDS = ("ai бот", "ai чат бот", "ai администратор", "ai админ", "ai менеджер")
 SOLUTION_ACTIONS = ("отвечает", "уточняет", "собирает", "передаёт", "передает",
                     "создаёт заявку", "создает заявку", "напоминает", "доводит",
                     "квалифицирует", "фиксирует", "сохраняет", "принимает", "закрывает")
 CHANNEL_WORDS = ("direct", "telegram", "whatsapp", "crm", "заяв", "follow up", "запис",
                  "админ", "клиент", "лид")
-CTA_WORDS = ("напишите аудит", "напишите бот", "напишите разбор", "точки потерь")
-WEAK_PHRASES = ("могу показать схему", "покажу простую схему", "если хотите расскажу",
+CTA_WORDS = ("напишите аудит", "напишите бот", "напишите разбор", "напишите схема", "точки потерь")
+WEAK_PHRASES = ("покажу простую схему", "если хотите расскажу",
                 "давайте посмотрим", "могу предложить", "уникальный ai бот",
                 "бесплатная услуга", "гарантированная прибыль", "просто улучшить",
                 "поможет бизнесу", "развивайте бренд", "повышайте узнаваемость",
@@ -70,7 +73,7 @@ def _hook_signature(text: str) -> set[str]:
 def has_strong_cta(text: str) -> bool:
     normalized = normalize_thread_text(text)
     has_action = any(word in normalized for word in CTA_WORDS)
-    has_destination = any(word in normalized for word in ("личку", "telegram", "direct", "whatsapp", "бот", "разбор"))
+    has_destination = any(word in normalized for word in ("личку", "telegram", "direct", "whatsapp", "бот", "разбор", "аудит", "схема"))
     return has_action and has_destination and not any(phrase in normalized for phrase in WEAK_PHRASES)
 
 
@@ -87,7 +90,7 @@ def is_senior_marketing_post(text: str) -> bool:
     first_line = next((line.strip() for line in (text or "").splitlines() if line.strip()), "")
     return all((
         bool(first_line) and len(first_line) <= 110,
-        any(word in normalize_thread_text(first_line) for word in PAIN_WORDS + CONSEQUENCE_WORDS),
+        any(word in normalized for word in PAIN_WORDS + CONSEQUENCE_WORDS),
         any(word in normalized for word in PAIN_WORDS),
         any(word in normalized for word in CONSEQUENCE_WORDS),
         any(word in normalized for word in ECONOMIC_WORDS),
@@ -202,6 +205,45 @@ def is_duplicate_post(queue: PostQueue, text: str) -> bool:
     return duplicate_reference(queue, text) is not None
 
 
+
+def template_for_text(text: str) -> GrowthTemplate | None:
+    normalized = normalize_thread_text(text)
+    return next((t for t in GROWTH_TEMPLATES if normalize_thread_text(t.text) == normalized), None)
+
+def metadata_for_text(text: str) -> dict[str, str]:
+    tpl = template_for_text(text)
+    if tpl:
+        return {"content_angle": tpl.content_angle, "content_format": tpl.rubric, "rubric": tpl.rubric, "goal": tpl.goal, "niche": tpl.niche, "cta_type": tpl.cta_type}
+    return {"content_angle": infer_content_angle(text), "content_format": "Custom", "rubric": "Custom", "goal": "прогрев", "niche": "общий бизнес", "cta_type": infer_cta_type(text)}
+
+def infer_cta_type(text: str) -> str:
+    n = normalize_thread_text(text)
+    for key in ("аудит", "бот", "разбор", "схема"):
+        if key in n:
+            return key
+    return "личка"
+
+def infer_content_angle(text: str) -> str:
+    n = normalize_thread_text(text)
+    checks = [("crm", "crm_not_filled"), ("follow up", "no_followup"), ("whatsapp", "whatsapp_chaos"), ("telegram", "telegram_without_crm"), ("ноч", "night_leads"), ("реклам", "ad_budget_lost"), ("замен", "ai_not_replace_manager"), ("админ", "admin_overloaded"), ("direct", "direct_chaos")]
+    return next((angle for token, angle in checks if token in n), "simple_ai_admin_offer")
+
+def angle_is_blocked(queue: PostQueue, angle: str, *, exclude_id: str | None = None) -> bool:
+    active = [p for p in queue.list_publishable() if str(p.id) != str(exclude_id)]
+    if sum((p.content_angle or infer_content_angle(p.text)) == angle for p in active) >= 2:
+        return True
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+    return any((p.content_angle or infer_content_angle(p.text)) == angle and (p.published_at or "") >= cutoff for p in queue.list_by_status("published"))
+
+def queue_smm_quality(queue: PostQueue) -> dict[str, object]:
+    posts = queue.list_publishable()
+    angles = [p.content_angle or infer_content_angle(p.text) for p in posts]
+    rubrics = [p.rubric or "Custom" for p in posts]
+    ctas = [p.cta_type or infer_cta_type(p.text) for p in posts]
+    repeated = [a for a,c in Counter(angles).items() if c > 1]
+    risk = "high" if any(Counter(angles)[a] >= 3 for a in angles) else ("medium" if repeated or len(set(ctas)) < 2 else "low")
+    return {"unique_angles": len(set(angles)), "repeated_angles": repeated, "rubrics": sorted(set(rubrics)), "cta_diversity": "good" if len(set(ctas)) >= 2 else "weak", "look_unique": not repeated, "template_risk": risk}
+
 def viral_fallback(index: int = 0, niche: str | None = None) -> str:
     if niche:
         candidate = viral_niche_post(niche)
@@ -236,7 +278,10 @@ def add_strong_unique_post(
     candidates.extend(viral_fallback(i) for i in range(len(VIRAL_THREADS_TEMPLATES)))
     for candidate in candidates:
         if validate_growth_post(candidate)[0] and not is_duplicate_post(queue, candidate):
-            return queue.add_post(candidate, source=source, scheduled_hour=scheduled_hour)
+            meta = metadata_for_text(candidate)
+            if angle_is_blocked(queue, meta["content_angle"]):
+                continue
+            return queue.add_post(candidate, source=source, scheduled_hour=scheduled_hour, **meta)
     return None
 
 
@@ -254,6 +299,23 @@ def refill_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-re
             added.append(post)
         attempts += 1
     return added
+
+
+def rebuild_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-rebuild") -> dict[str, object]:
+    removed_duplicates = purge_duplicate_drafts(queue)
+    removed_weak = 0
+    seen_angles: set[str] = set()
+    for post in queue.list_publishable():
+        angle = post.content_angle or infer_content_angle(post.text)
+        if score_thread_post(post.text) < MIN_VIRAL_SCORE or angle in seen_angles:
+            queue.mark_duplicate_skipped(post.id, reason="weak or repeated angle rebuild")
+            removed_weak += 1
+        else:
+            seen_angles.add(angle)
+    before = queue.get_draft_count()
+    added = refill_growth_queue(queue, minimum, source=source)
+    quality = queue_smm_quality(queue)
+    return {"removed_duplicates": removed_duplicates, "removed_weak": removed_weak, "added": len(added), "rubrics": quality["rubrics"], "angles": sorted({p.content_angle or infer_content_angle(p.text) for p in queue.list_publishable()}), "before": before}
 
 
 def purge_duplicate_drafts(queue: PostQueue) -> int:
@@ -276,6 +338,10 @@ def best_publishable_post(queue: PostQueue) -> QueuedPost | None:
 
 
 def next_unique_publishable_post(queue: PostQueue) -> QueuedPost | None:
+    for post in queue.list_publishable():
+        duplicate = queue.find_duplicate_for_publish(post.id, post.text)
+        if duplicate:
+            queue.mark_duplicate_skipped(post.id, reason=f"duplicate of published #{duplicate.id}")
     for post in sorted(queue.list_publishable(), key=lambda item: score_thread_post(item.text), reverse=True):
         duplicate = queue.find_duplicate_for_publish(post.id, post.text)
         if duplicate is None:

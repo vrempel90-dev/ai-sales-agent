@@ -33,9 +33,9 @@ def test_start_is_ai_growth_manager_and_not_legacy_menu():
 def test_telegram_menu_is_curated():
     commands = [item.command for item in BOT_COMMANDS]
     assert commands == [
-        "start", "autopilot_status", "growth_status", "growth_report",
-        "threads_queue", "threads_next", "comment_discovery_status",
-        "comment_queue", "health", "sales_status", "sales_preview", "whatsapp_status", "positioning",
+        "start", "autopilot_status", "growth_report", "growth_plan",
+        "threads_next", "threads_queue", "growth_refill", "growth_rebuild",
+        "sales_preview", "sales_status", "whatsapp_status", "health",
     ]
 
 
@@ -59,6 +59,7 @@ def test_growth_report_has_comment_block(tmp_path, monkeypatch):
     assert "duplicate skipped today: 1" in report
     assert "last duplicate skipped: Ваш админ ответил" in report
     assert "Marketing quality:" in report
+    assert "SMM quality:" in report
     assert "посты сегодня ведут к личке:" in report
 
 
@@ -68,7 +69,7 @@ def test_growth_plan_and_positioning_have_senior_marketing_structure():
     plan = plan_answers[0]
     assert "Главный маркетинговый фокус дня" in plan
     assert "Главный оффер дня" in plan
-    assert "Какие CTA используем" in plan
+    assert "CTA дня" in plan
 
     positioning_message, positioning_answers = _message(text="/positioning")
     asyncio.run(positioning(positioning_message))

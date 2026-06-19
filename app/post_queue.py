@@ -19,6 +19,12 @@ class QueuedPost:
     error_reason: str | None = None
     normalized_text: str | None = None
     hook: str | None = None
+    content_angle: str | None = None
+    content_format: str | None = None
+    rubric: str | None = None
+    goal: str | None = None
+    niche: str | None = None
+    cta_type: str | None = None
 
 
 class PostQueue:
@@ -52,13 +58,19 @@ class PostQueue:
                     source TEXT,
                     error_reason TEXT,
                     normalized_text TEXT,
-                    hook TEXT
+                    hook TEXT,
+                    content_angle TEXT,
+                    content_format TEXT,
+                    rubric TEXT,
+                    goal TEXT,
+                    niche TEXT,
+                    cta_type TEXT
                 )
                 """
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_threads_posts_status ON threads_posts(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_threads_posts_published_at ON threads_posts(published_at)")
-            for column, definition in (("normalized_text", "TEXT"), ("hook", "TEXT")):
+            for column, definition in (("normalized_text", "TEXT"), ("hook", "TEXT"), ("content_angle", "TEXT"), ("content_format", "TEXT"), ("rubric", "TEXT"), ("goal", "TEXT"), ("niche", "TEXT"), ("cta_type", "TEXT")):
                 existing = [row[1] for row in conn.execute("PRAGMA table_info(threads_posts)").fetchall()]
                 if column not in existing:
                     conn.execute(f"ALTER TABLE threads_posts ADD COLUMN {column} {definition}")
@@ -84,6 +96,8 @@ class PostQueue:
         data = dict(row)
         data.setdefault("normalized_text", None)
         data.setdefault("hook", None)
+        for key in ("content_angle", "content_format", "rubric", "goal", "niche", "cta_type"):
+            data.setdefault(key, None)
         return QueuedPost(**data)
 
     def _now(self) -> str:
@@ -94,15 +108,15 @@ class PostQueue:
 
         return normalize_thread_text(text), extract_hook(text)
 
-    def add_post(self, text: str, source: str = "manual", scheduled_hour: int | None = None) -> QueuedPost:
+    def add_post(self, text: str, source: str = "manual", scheduled_hour: int | None = None, **metadata) -> QueuedPost:
         with self._connect() as conn:
             next_id = int(conn.execute("SELECT COALESCE(MAX(CAST(id AS INTEGER)), 0) + 1 FROM threads_posts WHERE id GLOB '[0-9]*'").fetchone()[0])
         normalized_text, hook = self._text_fingerprints(text)
-        post = QueuedPost(str(next_id), text.strip(), "draft", self._now(), scheduled_hour=scheduled_hour, source=source, normalized_text=normalized_text, hook=hook)
+        post = QueuedPost(str(next_id), text.strip(), "draft", self._now(), scheduled_hour=scheduled_hour, source=source, normalized_text=normalized_text, hook=hook, content_angle=metadata.get("content_angle"), content_format=metadata.get("content_format"), rubric=metadata.get("rubric"), goal=metadata.get("goal"), niche=metadata.get("niche"), cta_type=metadata.get("cta_type"))
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO threads_posts (id, text, status, created_at, scheduled_hour, source, normalized_text, hook) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (post.id, post.text, post.status, post.created_at, post.scheduled_hour, post.source, post.normalized_text, post.hook),
+                "INSERT INTO threads_posts (id, text, status, created_at, scheduled_hour, source, normalized_text, hook, content_angle, content_format, rubric, goal, niche, cta_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (post.id, post.text, post.status, post.created_at, post.scheduled_hour, post.source, post.normalized_text, post.hook, post.content_angle, post.content_format, post.rubric, post.goal, post.niche, post.cta_type),
             )
         return post
 
