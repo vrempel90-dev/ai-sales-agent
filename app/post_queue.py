@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import os
 import sqlite3
 
@@ -17,6 +17,8 @@ class QueuedPost:
     scheduled_hour: int | None = None
     source: str | None = None
     error_reason: str | None = None
+    normalized_text: str | None = None
+    hook: str | None = None
 
 
 class PostQueue:
@@ -48,27 +50,59 @@ class PostQueue:
                     published_at TEXT,
                     scheduled_hour INTEGER,
                     source TEXT,
-                    error_reason TEXT
+                    error_reason TEXT,
+                    normalized_text TEXT,
+                    hook TEXT
                 )
                 """
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_threads_posts_status ON threads_posts(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_threads_posts_published_at ON threads_posts(published_at)")
+            for column, definition in (("normalized_text", "TEXT"), ("hook", "TEXT")):
+                existing = [row[1] for row in conn.execute("PRAGMA table_info(threads_posts)").fetchall()]
+                if column not in existing:
+                    conn.execute(f"ALTER TABLE threads_posts ADD COLUMN {column} {definition}")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS threads_duplicate_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    text TEXT NOT NULL,
+                    normalized_text TEXT,
+                    hook TEXT,
+                    skipped_at TEXT NOT NULL,
+                    source TEXT,
+                    post_id TEXT,
+                    reason TEXT
+                )
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_threads_duplicate_events_skipped_at ON threads_duplicate_events(skipped_at)")
 
     def _row_to_post(self, row: sqlite3.Row | None) -> QueuedPost | None:
-        return QueuedPost(**dict(row)) if row else None
+        if not row:
+            return None
+        data = dict(row)
+        data.setdefault("normalized_text", None)
+        data.setdefault("hook", None)
+        return QueuedPost(**data)
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
 
+    def _text_fingerprints(self, text: str) -> tuple[str, str]:
+        from app.threads_growth import extract_hook, normalize_thread_text
+
+        return normalize_thread_text(text), extract_hook(text)
+
     def add_post(self, text: str, source: str = "manual", scheduled_hour: int | None = None) -> QueuedPost:
         with self._connect() as conn:
             next_id = int(conn.execute("SELECT COALESCE(MAX(CAST(id AS INTEGER)), 0) + 1 FROM threads_posts WHERE id GLOB '[0-9]*'").fetchone()[0])
-        post = QueuedPost(str(next_id), text.strip(), "draft", self._now(), scheduled_hour=scheduled_hour, source=source)
+        normalized_text, hook = self._text_fingerprints(text)
+        post = QueuedPost(str(next_id), text.strip(), "draft", self._now(), scheduled_hour=scheduled_hour, source=source, normalized_text=normalized_text, hook=hook)
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO threads_posts (id, text, status, created_at, scheduled_hour, source) VALUES (?, ?, ?, ?, ?, ?)",
-                (post.id, post.text, post.status, post.created_at, post.scheduled_hour, post.source),
+                "INSERT INTO threads_posts (id, text, status, created_at, scheduled_hour, source, normalized_text, hook) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (post.id, post.text, post.status, post.created_at, post.scheduled_hour, post.source, post.normalized_text, post.hook),
             )
         return post
 
@@ -92,6 +126,28 @@ class PostQueue:
                 "SELECT * FROM threads_posts WHERE status IN ('approved', 'draft') ORDER BY created_at ASC"
             ).fetchall()
         return [self._row_to_post(row) for row in rows]
+
+    def list_published_since(self, days: int = 7):
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM threads_posts WHERE status = 'published' AND published_at >= ? ORDER BY published_at DESC",
+                (cutoff,),
+            ).fetchall()
+        return [self._row_to_post(row) for row in rows]
+
+    def list_duplicate_guard_posts(self):
+        published = self.list_published_since(7)
+        active = [p for p in self.list_by_status("draft") + self.list_by_status("approved")]
+        return active + published
+
+    def find_duplicate_for_publish(self, id, text: str):
+        from app.threads_growth import posts_are_duplicates
+
+        for post in self.list_published_since(7):
+            if str(post.id) != str(id) and posts_are_duplicates(text, post.text):
+                return post
+        return None
 
     def list_active_and_published_today(self):
         today = datetime.now(timezone.utc).date()
@@ -130,6 +186,34 @@ class PostQueue:
     def mark_published(self, id): return self._set_status(id, "published", published=True)
     def mark_failed(self, id, reason): return self._set_status(id, "failed", reason=reason)
 
+    def record_duplicate_skip(self, text: str, *, source: str | None = None, post_id: str | None = None, reason: str | None = None):
+        normalized_text, hook = self._text_fingerprints(text)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO threads_duplicate_events (text, normalized_text, hook, skipped_at, source, post_id, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (text.strip(), normalized_text, hook, self._now(), source, post_id, reason),
+            )
+
+    def mark_duplicate_skipped(self, id, *, duplicate_text: str | None = None, reason: str = "duplicate"):
+        post = self.get_post(id)
+        if post:
+            self.record_duplicate_skip(duplicate_text or post.text, source=post.source, post_id=post.id, reason=reason)
+        return self._set_status(id, "skipped", reason=reason)
+
+    def get_duplicate_skipped_count_for_date(self, day: date) -> int:
+        start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc).isoformat()
+        end = datetime.combine(day, datetime.max.time(), tzinfo=timezone.utc).isoformat()
+        with self._connect() as conn:
+            return int(conn.execute("SELECT COUNT(*) FROM threads_duplicate_events WHERE skipped_at BETWEEN ? AND ?", (start, end)).fetchone()[0])
+
+    def get_last_duplicate_skip(self):
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM threads_duplicate_events ORDER BY skipped_at DESC LIMIT 1").fetchone()
+        return dict(row) if row else None
+
     def get_next_draft(self):
         with self._connect() as conn:
             return self._row_to_post(conn.execute("SELECT * FROM threads_posts WHERE status = 'draft' ORDER BY created_at ASC LIMIT 1").fetchone())
@@ -141,8 +225,8 @@ class PostQueue:
     def update_post(self, id, text: str):
         with self._connect() as conn:
             conn.execute(
-                "UPDATE threads_posts SET text = ?, status = 'draft', updated_at = ?, error_reason = NULL WHERE id = ?",
-                (text.strip(), self._now(), str(id)),
+                "UPDATE threads_posts SET text = ?, status = 'draft', updated_at = ?, error_reason = NULL, normalized_text = ?, hook = ? WHERE id = ?",
+                (text.strip(), self._now(), *self._text_fingerprints(text), str(id)),
             )
         return self.get_post(id)
 

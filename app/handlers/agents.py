@@ -21,6 +21,8 @@ from app.threads_client import ThreadsClient
 from app.threads_growth import (
     add_strong_unique_post,
     best_publishable_post,
+    next_unique_publishable_post,
+    purge_duplicate_drafts,
     has_strong_cta,
     is_senior_marketing_post,
     refill_growth_queue,
@@ -249,6 +251,8 @@ async def growth_status(message: Message, settings: Settings):
 def build_growth_report(settings: Settings) -> str:
     today = datetime.now(timezone.utc).date()
     published = [p for p in post_queue.list_by_status("published") if (p.published_at or "").startswith(today.isoformat())]
+    last_duplicate = post_queue.get_last_duplicate_skip()
+    last_duplicate_text = (last_duplicate or {}).get("text", "")[:80] if last_duplicate else "нет"
     posts_lead_to_dm = bool(published) and all(has_strong_cta(p.text) for p in published)
     weak_positioning_risk = bool(published) and not all(is_senior_marketing_post(p.text) for p in published)
     return (
@@ -257,6 +261,8 @@ def build_growth_report(settings: Settings) -> str:
         f"Посты: {', '.join('#' + p.id for p in published) or 'нет'}\n"
         f"Draft в очереди: {post_queue.get_draft_count()}\n"
         f"Добавлено автопилотом: {growth_runtime.posts_added}\n"
+        f"duplicate skipped today: {post_queue.get_duplicate_skipped_count_for_date(today)}\n"
+        f"last duplicate skipped: {last_duplicate_text}\n"
         f"Threads API errors: {growth_runtime.last_error or 'нет'}\n"
         "Лиды/hot leads: обрабатываются Sales DM Agent\n"
         f"Ollama: модель {settings.ollama_model}, fallback-first активен\n"
@@ -387,9 +393,10 @@ async def positioning(message: Message):
 
 @router.message(Command("threads_queue"))
 async def threads_queue(message: Message):
+    purge_duplicate_drafts(post_queue)
     posts = post_queue.list_posts()
     if not posts: await message.answer("Очередь Threads пустая."); return
-    await message.answer("\n".join(f"#{p.id} — {p.status} — {p.text[:80]}" for p in posts))
+    await message.answer("\n".join(f"#{p.id} — {p.status} — {p.text[:80]}" for p in posts if p.status != "skipped" or p.error_reason != "duplicate"))
 
 @router.message(Command("health"))
 async def health(message: Message, settings: Settings):
@@ -445,8 +452,8 @@ async def autopost_plan(message: Message, settings: Settings):
 
 @router.message(Command("autopost_now"))
 async def autopost_now(message: Message, settings: Settings):
-    post = best_publishable_post(post_queue)
-    if not post: await message.answer("Нет постов для публикации."); return
+    post = next_unique_publishable_post(post_queue)
+    if not post: await message.answer("Нет постов для публикации: drafts дублируют published history или очередь пуста."); return
     await publish_by_id(message, settings, post.id)
 
 @router.message(Command("autopost_generate"))
@@ -456,6 +463,12 @@ async def autopost_generate(message: Message, settings: Settings):
 async def publish_by_id(message: Message, settings: Settings, pid):
     post = post_queue.get_post(pid)
     if not post: await message.answer("Пост не найден."); return
+    duplicate = post_queue.find_duplicate_for_publish(post.id, post.text)
+    if duplicate:
+        post_queue.mark_duplicate_skipped(post.id, reason=f"duplicate of published #{duplicate.id}")
+        growth_runtime.last_error = f"duplicate skipped #{post.id}"
+        await message.answer("Пост не опубликован: похожий пост уже был опубликован за последние 7 дней.")
+        return
     is_valid, reason = validate_threads_post(post.text)
     if not is_valid:
         post_queue.mark_failed(post.id, f"safety: {reason}")

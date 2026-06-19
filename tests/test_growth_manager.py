@@ -46,11 +46,18 @@ def test_autopilot_on_is_owner_only(tmp_path):
     assert answers == ["Эта команда доступна только владельцу."]
 
 
-def test_growth_report_has_comment_block(tmp_path):
+def test_growth_report_has_comment_block(tmp_path, monkeypatch):
+    from app.post_queue import PostQueue
+
+    queue = PostQueue(str(tmp_path / "db.sqlite"))
+    queue.record_duplicate_skip("Ваш админ ответил через 2 часа — клиент уже ушёл", source="test")
+    monkeypatch.setattr("app.handlers.agents.post_queue", queue)
     report = build_growth_report(make_settings(str(tmp_path / "db.sqlite")))
     assert "Safe Comment Discovery" in report
     assert "Draft в очереди" in report
     assert "Threads API errors" in report
+    assert "duplicate skipped today: 1" in report
+    assert "last duplicate skipped: Ваш админ ответил" in report
     assert "Marketing quality:" in report
     assert "посты сегодня ведут к личке:" in report
 
