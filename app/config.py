@@ -92,6 +92,36 @@ class Settings:
     lead_hunter_report_hour: int = 21
     lead_hunter_timezone: str = "Asia/Almaty"
 
+    autonomous_threads_agent_enabled: bool = False
+    autonomous_threads_agent_auto_start: bool = False
+    autonomous_threads_agent_dry_run: bool = True
+    autonomous_threads_agent_timezone: str = "Asia/Almaty"
+    autonomous_threads_daily_post_target: int = 3
+    autonomous_threads_daily_comment_limit: int = 5
+    autonomous_threads_daily_dm_limit: int = 2
+    autonomous_threads_daily_scan_limit: int = 30
+    autonomous_threads_min_comment_score: int = 80
+    autonomous_threads_min_dm_score: int = 85
+    autonomous_threads_start_hour: int = 10
+    autonomous_threads_end_hour: int = 20
+    autonomous_threads_min_delay_minutes: int = 45
+    autonomous_threads_max_delay_minutes: int = 120
+    autonomous_threads_comments_enabled: bool = False
+    autonomous_threads_dms_enabled: bool = False
+    autonomous_threads_browser_mode: bool = False
+    autonomous_threads_stop_on_captcha: bool = True
+    autonomous_threads_stop_on_checkpoint: bool = True
+    autonomous_threads_stop_on_rate_limit: bool = True
+    autonomous_threads_stop_on_action_blocked: bool = True
+    autonomous_threads_stop_on_login_issue: bool = True
+    autonomous_threads_no_mass_dm: bool = True
+    autonomous_threads_no_duplicates: bool = True
+    autonomous_threads_no_links_in_first_touch: bool = True
+    autonomous_threads_no_price_in_first_touch: bool = True
+    autonomous_threads_report_enabled: bool = True
+    autonomous_threads_report_hour: int = 21
+    autonomous_threads_owner_notify: bool = True
+
     @property
     def threads_api_configured(self) -> bool:
         return bool(self.threads_access_token and self.threads_user_id)
@@ -164,4 +194,33 @@ def get_settings() -> Settings:
         lead_hunter_block_if_no_official_channel=_bool_env("LEAD_HUNTER_BLOCK_IF_NO_OFFICIAL_CHANNEL", "true"),
         lead_hunter_report_hour=_int_env("LEAD_HUNTER_REPORT_HOUR", 21),
         lead_hunter_timezone=os.getenv("LEAD_HUNTER_TIMEZONE", "Asia/Almaty").strip(),
+        autonomous_threads_agent_enabled=_bool_env("AUTONOMOUS_THREADS_AGENT_ENABLED", "false"),
+        autonomous_threads_agent_auto_start=_bool_env("AUTONOMOUS_THREADS_AGENT_AUTO_START", "false"),
+        autonomous_threads_agent_dry_run=_bool_env("AUTONOMOUS_THREADS_AGENT_DRY_RUN", "true"),
+        autonomous_threads_agent_timezone=os.getenv("AUTONOMOUS_THREADS_AGENT_TIMEZONE", "Asia/Almaty").strip(),
+        autonomous_threads_daily_post_target=_int_env("AUTONOMOUS_THREADS_DAILY_POST_TARGET", 3),
+        autonomous_threads_daily_comment_limit=_int_env("AUTONOMOUS_THREADS_DAILY_COMMENT_LIMIT", 5),
+        autonomous_threads_daily_dm_limit=_int_env("AUTONOMOUS_THREADS_DAILY_DM_LIMIT", 2),
+        autonomous_threads_daily_scan_limit=_int_env("AUTONOMOUS_THREADS_DAILY_SCAN_LIMIT", 30),
+        autonomous_threads_min_comment_score=_int_env("AUTONOMOUS_THREADS_MIN_COMMENT_SCORE", 80),
+        autonomous_threads_min_dm_score=_int_env("AUTONOMOUS_THREADS_MIN_DM_SCORE", 85),
+        autonomous_threads_start_hour=_int_env("AUTONOMOUS_THREADS_START_HOUR", 10),
+        autonomous_threads_end_hour=_int_env("AUTONOMOUS_THREADS_END_HOUR", 20),
+        autonomous_threads_min_delay_minutes=_int_env("AUTONOMOUS_THREADS_MIN_DELAY_MINUTES", 45),
+        autonomous_threads_max_delay_minutes=_int_env("AUTONOMOUS_THREADS_MAX_DELAY_MINUTES", 120),
+        autonomous_threads_comments_enabled=_bool_env("AUTONOMOUS_THREADS_COMMENTS_ENABLED", "false"),
+        autonomous_threads_dms_enabled=_bool_env("AUTONOMOUS_THREADS_DMS_ENABLED", "false"),
+        autonomous_threads_browser_mode=_bool_env("AUTONOMOUS_THREADS_BROWSER_MODE", "false"),
+        autonomous_threads_stop_on_captcha=_bool_env("AUTONOMOUS_THREADS_STOP_ON_CAPTCHA", "true"),
+        autonomous_threads_stop_on_checkpoint=_bool_env("AUTONOMOUS_THREADS_STOP_ON_CHECKPOINT", "true"),
+        autonomous_threads_stop_on_rate_limit=_bool_env("AUTONOMOUS_THREADS_STOP_ON_RATE_LIMIT", "true"),
+        autonomous_threads_stop_on_action_blocked=_bool_env("AUTONOMOUS_THREADS_STOP_ON_ACTION_BLOCKED", "true"),
+        autonomous_threads_stop_on_login_issue=_bool_env("AUTONOMOUS_THREADS_STOP_ON_LOGIN_ISSUE", "true"),
+        autonomous_threads_no_mass_dm=_bool_env("AUTONOMOUS_THREADS_NO_MASS_DM", "true"),
+        autonomous_threads_no_duplicates=_bool_env("AUTONOMOUS_THREADS_NO_DUPLICATES", "true"),
+        autonomous_threads_no_links_in_first_touch=_bool_env("AUTONOMOUS_THREADS_NO_LINKS_IN_FIRST_TOUCH", "true"),
+        autonomous_threads_no_price_in_first_touch=_bool_env("AUTONOMOUS_THREADS_NO_PRICE_IN_FIRST_TOUCH", "true"),
+        autonomous_threads_report_enabled=_bool_env("AUTONOMOUS_THREADS_REPORT_ENABLED", "true"),
+        autonomous_threads_report_hour=_int_env("AUTONOMOUS_THREADS_REPORT_HOUR", 21),
+        autonomous_threads_owner_notify=_bool_env("AUTONOMOUS_THREADS_OWNER_NOTIFY", "true"),
     )
