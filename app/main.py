@@ -16,13 +16,13 @@ logger = logging.getLogger(__name__)
 
 BOT_COMMANDS = [
     BotCommand(command="start", description="AI Growth Manager"),
-    BotCommand(command="autopilot_status", description="Статус автопилота"),
-    BotCommand(command="growth_report", description="Отчёт за день"),
-    BotCommand(command="growth_plan", description="План на сегодня"),
+    BotCommand(command="growth_report", description="Что происходит сегодня"),
+    BotCommand(command="growth_plan", description="Стратегия дня"),
+    BotCommand(command="autopilot_status", description="Работает ли автопилот"),
     BotCommand(command="threads_next", description="Следующий пост"),
     BotCommand(command="threads_queue", description="Очередь постов"),
-    BotCommand(command="growth_refill", description="Пополнить очередь"),
     BotCommand(command="growth_rebuild", description="Пересобрать очередь"),
+    BotCommand(command="growth_refill", description="Пополнить очередь"),
     BotCommand(command="sales_preview", description="Проверить ответ клиенту"),
     BotCommand(command="sales_status", description="Статус продаж"),
     BotCommand(command="whatsapp_status", description="WhatsApp"),

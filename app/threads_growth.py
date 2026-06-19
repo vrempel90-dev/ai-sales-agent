@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from app.content_safety import validate_threads_post
 from app.post_queue import PostQueue, QueuedPost
 
-MIN_VIRAL_SCORE = 7
+MIN_VIRAL_SCORE = 0
 
 PAIN_WORDS = ("теря", "не дожд", "хаос", "медлен", "забы", "чёрная дыра", "устал",
               "не обработ", "не успева", "не занос", "пропада", "перегруж",
@@ -20,16 +20,19 @@ ECONOMIC_WORDS = ("деньг", "оплат", "реклам", "бюджет", "�
 SOLUTION_WORDS = ("ai бот", "ai чат бот", "ai администратор", "ai админ", "ai менеджер")
 SOLUTION_ACTIONS = ("отвечает", "уточняет", "собирает", "передаёт", "передает",
                     "создаёт заявку", "создает заявку", "напоминает", "доводит",
-                    "квалифицирует", "фиксирует", "сохраняет", "принимает", "закрывает")
+                    "квалифицирует", "фиксирует", "сохраняет", "принимает", "принять", "закрывает", "закроет")
 CHANNEL_WORDS = ("direct", "telegram", "whatsapp", "crm", "заяв", "follow up", "запис",
                  "админ", "клиент", "лид")
-CTA_WORDS = ("напишите аудит", "напишите бот", "напишите разбор", "напишите схема", "точки потерь")
+CTA_WORDS = ("напишите аудит", "напишите бот", "напишите разбор", "напишите схема", "точки потерь", "ответьте")
 WEAK_PHRASES = ("покажу простую схему", "если хотите расскажу",
-                "давайте посмотрим", "могу предложить", "уникальный ai бот",
+                "давайте посмотрим", "давайте рассмотрим", "могу предложить", "уникальный ai бот",
                 "бесплатная услуга", "гарантированная прибыль", "просто улучшить",
                 "поможет бизнесу", "развивайте бренд", "повышайте узнаваемость",
                 "качественный контент", "индивидуальный подход", "мы лучшие",
-                "команда профессионалов", "комплексный маркетинг")
+                "команда профессионалов", "комплексный маркетинг", "автоматизируйте процессы",
+                "повышайте эффективность", "наше решение позволит",
+                "в современном бизнесе важно", "инструмент для оптимизации",
+                "ai бот поможет вашему бизнесу")
 IRRELEVANT = ("сайт", "лендинг", "веб-приложение", "html", "css", "javascript",
               "интернет-магазин", "seo", "дизайн сайта", "smm", "тестовая система",
               "бесконтактные технологии")
@@ -73,32 +76,40 @@ def _hook_signature(text: str) -> set[str]:
 def has_strong_cta(text: str) -> bool:
     normalized = normalize_thread_text(text)
     has_action = any(word in normalized for word in CTA_WORDS)
-    has_destination = any(word in normalized for word in ("личку", "telegram", "direct", "whatsapp", "бот", "разбор", "аудит", "схема"))
+    has_destination = any(word in normalized for word in ("личку", "telegram", "direct", "whatsapp", "бот", "разбор", "аудит", "схема", "crm"))
     return has_action and has_destination and not any(phrase in normalized for phrase in WEAK_PHRASES)
 
 
 def has_specific_ai_solution(text: str) -> bool:
     normalized = normalize_thread_text(text)
-    return (
-        any(word in normalized for word in SOLUTION_WORDS)
-        and any(action in normalized for action in SOLUTION_ACTIONS)
-    )
+    has_ai = any(word in normalized for word in SOLUTION_WORDS) or "ai админ" in normalized or "ai бот" in normalized
+    has_action = any(action in normalized for action in SOLUTION_ACTIONS) or any(word in normalized for word in ("первый ответ", "follow up", "путь заявки", "закроет"))
+    return has_ai and has_action
+
+
+def is_not_banal_smm_post(text: str) -> bool:
+    normalized = normalize_thread_text(text)
+    first_line = next((line.strip() for line in (text or "").splitlines() if line.strip()), "")
+    concrete = any(word in normalized for word in CHANNEL_WORDS + ("админ", "менеджер", "crm", "direct", "whatsapp", "telegram", "запис", "follow up"))
+    human = any(word in normalized for word in ("я бы", "смешно", "проверьте", "часто", "обычно", "проблема", "владелец", "админ", "хорош", "пациент", "клиент"))
+    value = any(word in normalized for word in ("проверь", "признак", "путь", "ошиб", "почему", "сначала", "места", "роль"))
+    ad_like = any(phrase in normalized for phrase in WEAK_PHRASES)
+    too_universal = not concrete
+    return bool(first_line) and len(first_line) <= 140 and concrete and human and value and not ad_like and not too_universal
 
 
 def is_senior_marketing_post(text: str) -> bool:
     normalized = normalize_thread_text(text)
     first_line = next((line.strip() for line in (text or "").splitlines() if line.strip()), "")
     return all((
-        bool(first_line) and len(first_line) <= 110,
-        any(word in normalized for word in PAIN_WORDS + CONSEQUENCE_WORDS),
-        any(word in normalized for word in PAIN_WORDS),
-        any(word in normalized for word in CONSEQUENCE_WORDS),
+        bool(first_line) and len(first_line) <= 140,
         any(word in normalized for word in ECONOMIC_WORDS),
-        has_specific_ai_solution(text),
         any(word in normalized for word in CHANNEL_WORDS),
+        has_specific_ai_solution(text),
         has_strong_cta(text),
+        is_not_banal_smm_post(text),
         not any(phrase in normalized for phrase in WEAK_PHRASES),
-        not any(phrase in normalized for phrase in IRRELEVANT),
+        not any((phrase != "сайт" and phrase in normalized) or (phrase == "сайт" and re.search(r"\bсайт\b", normalized)) for phrase in IRRELEVANT),
     ))
 
 
@@ -124,20 +135,18 @@ def validate_growth_post(text: str) -> tuple[bool, str]:
         return False, "пост выглядит оборванным или фрагментированным"
     if any(marker in stripped.lower() for marker in WHATSAPP_MARKERS):
         return False, "WhatsApp-ссылка запрещена в публичном Threads-посте"
-    if any(phrase in normalized for phrase in IRRELEVANT):
+    if any((phrase != "сайт" and phrase in normalized) or (phrase == "сайт" and re.search(r"\bсайт\b", normalized)) for phrase in IRRELEVANT):
         return False, "запрещённая тема"
-    if not has_specific_ai_solution(stripped):
-        return False, "нет конкретного AI-бота как решения"
-    if not any(word in normalized for word in PAIN_WORDS):
-        return False, "нет боли владельца"
-    if not any(word in normalized for word in CONSEQUENCE_WORDS):
-        return False, "нет последствия"
-    if not any(word in normalized for word in ECONOMIC_WORDS):
-        return False, "нет коммерческого смысла"
+    if "существует рядом с" in normalized:
+        return False, "нет конкретного AI-действия"
+    if not (has_specific_ai_solution(stripped) or any(word in normalized for word in ("заяв", "клиент", "crm", "direct", "whatsapp", "telegram", "админ", "follow up"))):
+        return False, "нет конкретики про заявки/каналы/CRM"
+    if not any(word in normalized for word in ECONOMIC_WORDS + CHANNEL_WORDS):
+        return False, "нет коммерческого или SMM-смысла"
     if not has_strong_cta(stripped):
         return False, "нет сильного CTA"
-    if not is_senior_marketing_post(stripped):
-        return False, "текст не проходит Senior Marketing Brain"
+    if not is_not_banal_smm_post(stripped):
+        return False, "банальный SMM-пост"
     valid, reason = validate_threads_post(stripped)
     return (valid, reason if not valid else "ok")
 
@@ -158,7 +167,8 @@ def score_thread_post(text: str) -> int:
     score += 1 if 300 <= len((text or "").strip()) <= 700 else -2
     score -= 5 * sum(phrase in normalized for phrase in WEAK_PHRASES)
     score -= 10 * sum(phrase in normalized for phrase in IRRELEVANT)
-    score += 2 if is_senior_marketing_post(text) else -5
+    score += 2 if is_senior_marketing_post(text) else -2
+    score += 4 if is_not_banal_smm_post(text) else -4
     if any(marker in (text or "").lower() for marker in WHATSAPP_MARKERS):
         return -20
     if not validate_growth_post(text)[0]:
@@ -241,8 +251,36 @@ def queue_smm_quality(queue: PostQueue) -> dict[str, object]:
     rubrics = [p.rubric or "Custom" for p in posts]
     ctas = [p.cta_type or infer_cta_type(p.text) for p in posts]
     repeated = [a for a,c in Counter(angles).items() if c > 1]
-    risk = "high" if any(Counter(angles)[a] >= 3 for a in angles) else ("medium" if repeated or len(set(ctas)) < 2 else "low")
-    return {"unique_angles": len(set(angles)), "repeated_angles": repeated, "rubrics": sorted(set(rubrics)), "cta_diversity": "good" if len(set(ctas)) >= 2 else "weak", "look_unique": not repeated, "template_risk": risk}
+    banal = [p for p in posts if not is_not_banal_smm_post(p.text)]
+    formats = sorted(set(rubrics))
+    goals = [p.goal or metadata_for_text(p.text)["goal"] for p in posts]
+    cta_repeats = any(ctas[i] == ctas[i-1] == ctas[i-2] for i in range(2, len(ctas)))
+    format_repeats = any(rubrics[i] == rubrics[i-1] == rubrics[i-2] for i in range(2, len(rubrics)))
+    risk = "high" if banal or cta_repeats or format_repeats or any(Counter(angles)[a] >= 3 for a in angles) else ("medium" if repeated or len(set(ctas)) < 2 else "low")
+    return {"unique_angles": len(set(angles)), "repeated_angles": repeated, "rubrics": formats, "formats_count": len(formats), "cta_diversity": "good" if len(set(ctas)) >= 2 and not cta_repeats else "weak", "look_unique": not repeated and not banal, "template_risk": risk, "banal_count": len(banal), "has_trust": any(g in ("Trust", "Founder POV", "Proof") or "довер" in g.lower() for g in goals), "has_offer": any(g == "Offer" or c == "аудит" for g,c in zip(goals, ctas)), "has_expertise": any(g in ("Education", "Diagnostic", "Founder POV") for g in goals)}
+
+
+def first_sentence(text: str) -> str:
+    stripped = (text or "").strip()
+    match = re.split(r"(?<=[.!?])\s+|\n+", stripped, maxsplit=1)
+    return normalize_thread_text(match[0] if match else stripped)
+
+
+def content_memory_blocks(queue: PostQueue, text: str, meta: dict[str, str]) -> tuple[bool, str]:
+    recent_14 = queue.list_published_since(14) + queue.list_publishable()
+    fs = first_sentence(text)
+    if fs and any(first_sentence(p.text) == fs for p in recent_14):
+        return True, "first_sentence repeated inside 14 days"
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+    if any((p.content_angle or infer_content_angle(p.text)) == meta["content_angle"] and (p.published_at or p.created_at or "") >= cutoff for p in recent_14):
+        return True, "content_angle repeated inside 48h"
+    active = queue.list_publishable()
+    last_two = active[-2:]
+    if len(last_two) == 2 and all((p.content_format or p.rubric or metadata_for_text(p.text)["content_format"]) == meta["content_format"] for p in last_two):
+        return True, "content_format repeated more than 2 times"
+    if len(last_two) == 2 and all((p.cta_type or infer_cta_type(p.text)) == meta["cta_type"] for p in last_two):
+        return True, "cta_type repeated more than 2 times"
+    return False, "ok"
 
 def viral_fallback(index: int = 0, niche: str | None = None) -> str:
     if niche:
@@ -281,6 +319,9 @@ def add_strong_unique_post(
             meta = metadata_for_text(candidate)
             if angle_is_blocked(queue, meta["content_angle"]):
                 continue
+            blocked, _ = content_memory_blocks(queue, candidate, meta)
+            if blocked:
+                continue
             return queue.add_post(candidate, source=source, scheduled_hour=scheduled_hour, **meta)
     return None
 
@@ -304,18 +345,25 @@ def refill_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-re
 def rebuild_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-rebuild") -> dict[str, object]:
     removed_duplicates = purge_duplicate_drafts(queue)
     removed_weak = 0
+    removed_banal = 0
+    removed_angle = 0
     seen_angles: set[str] = set()
     for post in queue.list_publishable():
         angle = post.content_angle or infer_content_angle(post.text)
-        if score_thread_post(post.text) < MIN_VIRAL_SCORE or angle in seen_angles:
+        if not is_not_banal_smm_post(post.text):
+            queue.mark_duplicate_skipped(post.id, reason="banal smm post rebuild")
+            removed_banal += 1
+            removed_weak += 1
+        elif score_thread_post(post.text) < MIN_VIRAL_SCORE or angle in seen_angles:
             queue.mark_duplicate_skipped(post.id, reason="weak or repeated angle rebuild")
+            removed_angle += 1 if angle in seen_angles else 0
             removed_weak += 1
         else:
             seen_angles.add(angle)
     before = queue.get_draft_count()
     added = refill_growth_queue(queue, minimum, source=source)
     quality = queue_smm_quality(queue)
-    return {"removed_duplicates": removed_duplicates, "removed_weak": removed_weak, "added": len(added), "rubrics": quality["rubrics"], "angles": sorted({p.content_angle or infer_content_angle(p.text) for p in queue.list_publishable()}), "before": before}
+    return {"removed_duplicates": removed_duplicates, "removed_weak": removed_weak, "added": len(added), "rubrics": quality["rubrics"], "angles": sorted({p.content_angle or infer_content_angle(p.text) for p in queue.list_publishable()}), "before": before, "removed_banal": removed_banal, "removed_angle": removed_angle, "robot_like_risk": quality["template_risk"]}
 
 
 def purge_duplicate_drafts(queue: PostQueue) -> int:

@@ -7,18 +7,23 @@ from app.lead_store import LeadConversationService
 
 router = Router()
 
-START_TEXT = """Привет. Я AI Growth Manager для Threads: Senior SMM Growth Director + Safe Autopilot + growth strategist + sales-помощник.
+START_TEXT = """Я AI Growth Manager для Threads.
+
+Работаю как SMM-директор, маркетолог, копирайтер, sales-агент и Safe Autopilot в одном лице.
+
+Моя задача:
+вести страницу живо, не шаблонно, растить доверие, подписчиков и заявки на AI-ботов.
 
 Главное:
-• /autopilot_status — всё ли работает
-• /growth_report — отчёт за день
-• /growth_plan — план на сегодня
+• /growth_report — что происходит сегодня
+• /growth_plan — стратегия дня
+• /autopilot_status — работает ли автопилот
 
 Посты:
-• /threads_next — следующий пост
+• /threads_next — посмотреть следующий пост
 • /threads_queue — очередь
-• /growth_refill — пополнить очередь
 • /growth_rebuild — пересобрать очередь
+• /growth_refill — пополнить очередь
 
 Продажи:
 • /sales_preview текст — проверить ответ клиенту
@@ -28,8 +33,7 @@ START_TEXT = """Привет. Я AI Growth Manager для Threads: Senior SMM Gr
 Система:
 • /health
 • /ollama_test
-
-Расширенные команды доступны, но в основном меню скрыты."""
+"""
 
 @router.message(CommandStart())
 async def start(message: Message):

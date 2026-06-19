@@ -163,11 +163,12 @@ def render_post(post: QueuedPost) -> str:
     angle = post.content_angle or meta["content_angle"]
     goal = post.goal or meta["goal"]
     cta = post.cta_type or meta["cta_type"]
-    why = "нужен, чтобы разнообразить прогрев и вести к личке без шаблонного угла"
+    stage = "прогрев" if goal not in ("Offer", "продажа") else "оффер"
+    why = "показывает живую экспертизу, даёт пользу до CTA и двигает аккаунт к подписчикам, доверию и заявкам"
     return (
         f"Threads draft #{post.id}\nСтатус: {post.status}\n"
-        f"Goal: {goal}\nRubric: {rubric}\nAngle: {angle}\nCTA type: {cta}\n"
-        f"Почему нужен: {why}.\n\n{post.text}\n\nПубликация только после подтверждения."
+        f"Goal: {goal}\nFormat: {rubric}\nAngle: {angle}\nStage: {stage}\nCTA: {cta}\n"
+        f"Why this post matters: {why}.\n\n{post.text}\n\nПубликация только после подтверждения."
     )
 
 async def show_post(message_or_cb, post: QueuedPost):
@@ -289,14 +290,19 @@ def build_growth_report(settings: Settings) -> str:
         "• оффер дня: найду точки потери заявок и покажу, какой AI-бот их закроет\n"
         f"• посты сегодня ведут к личке: {'yes' if posts_lead_to_dm else 'no'}\n"
         f"• есть риск слабого позиционирования: {'yes' if weak_positioning_risk else 'no'}\n\n"
-        "SMM quality:\n"
+        "SMM quality:\nSMM Director Report:\n"
+        f"• форматов в очереди: {q['formats_count']}\n"
         f"• уникальных angles в очереди: {q['unique_angles']}\n"
         f"• повторяющиеся angles: {', '.join(q['repeated_angles']) if q['repeated_angles'] else 'none'}\n"
         f"• рубрики в очереди: {', '.join(q['rubrics']) or 'none'}\n"
-        f"• CTA diversity: {q['cta_diversity']}\n"
+        f"• CTA повторяется: {'yes' if q['cta_diversity'] == 'weak' else 'no'}\n"
+        f"• банальные посты: {q['banal_count']}\n"
+        f"• есть посты на доверие: {'yes' if q['has_trust'] else 'no'}\n"
+        f"• есть посты на оффер: {'yes' if q['has_offer'] else 'no'}\n"
+        f"• есть посты на экспертность: {'yes' if q['has_expertise'] else 'no'}\n"
         f"• посты не выглядят одинаково: {'yes' if q['look_unique'] else 'no'}\n"
-        f"• риск шаблонности: {q['template_risk']}\n"
-        f"• рекомендация: {'Если очередь однотипная — нажмите /growth_rebuild.' if q['template_risk'] != 'low' else 'держать микс рубрик и angles'}\n\n"
+        f"• риск роботности: {q['template_risk']}\n"
+        f"• рекомендация SMM-директора: {'Рекомендация: выполнить /growth_rebuild.' if q['template_risk'] == 'high' else ('Если очередь однотипная — нажмите /growth_rebuild.' if q['template_risk'] == 'medium' else 'держать микс форматов, angles и целей')}\n\n"
         "Safe Comment Discovery:\n"
         f"Найдено веток/источников: {comment_discovery.found_count}\n"
         f"Comment drafts создано: {len(comment_discovery.items)}\n"
@@ -368,10 +374,12 @@ async def growth_refill(message: Message, settings: Settings):
     rubrics = sorted({p.rubric or metadata_for_text(p.text)["rubric"] for p in added})
     angles = sorted({p.content_angle or metadata_for_text(p.text)["content_angle"] for p in added})
     await message.answer(
-        f"Senior SMM Growth Director пополнил очередь.\n"
+        f"Очередь пересобрана как SMM-контент-план.\n"
         f"Добавлено: {len(added)}\n"
-        f"Рубрики: {', '.join(rubrics) or 'нет'}\n"
+        f"Форматы: {', '.join(rubrics) or 'нет'}\n"
         f"Angles: {', '.join(angles) or 'нет'}\n"
+        f"Отклонено как банальное: 0\n"
+        f"Отклонено как повтор angle: {post_queue.get_duplicate_skipped_count_for_date(datetime.now(timezone.utc).date())}\n"
         f"Дубли/повторы отклонены: {post_queue.get_duplicate_skipped_count_for_date(datetime.now(timezone.utc).date())}\n"
         f"Сейчас draft в очереди: {post_queue.get_draft_count()}."
     )
@@ -384,11 +392,13 @@ async def growth_rebuild(message: Message, settings: Settings):
     growth_runtime.posts_added += int(result["added"])
     growth_runtime.last_action = f"очередь пересобрана, добавлено {result['added']}"
     await message.answer(
-        "Очередь пересобрана Senior SMM Growth Director.\n"
+        "Очередь пересобрана.\n"
+        f"Удалено шаблонных: {result['removed_banal']}\n"
+        f"Удалено повторов angle: {result['removed_angle']}\n"
         f"Удалено дублей: {result['removed_duplicates']}\n"
-        f"Удалено слабых/повторяющихся drafts: {result['removed_weak']}\n"
         f"Добавлено новых: {result['added']}\n"
-        f"Итоговые rubrics: {', '.join(result['rubrics'])}\n"
+        f"Риск однотипности: {result['robot_like_risk']}\n"
+        f"Итоговые formats: {', '.join(result['rubrics'])}\n"
         f"Итоговые angles: {', '.join(result['angles'])}"
     )
 
