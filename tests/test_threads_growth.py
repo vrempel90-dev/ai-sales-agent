@@ -251,3 +251,50 @@ def test_autopilot_selects_next_draft_when_first_is_duplicate(tmp_path):
 
     assert selected.id == unique.id
     assert queue.get_post(duplicate.id).status == "skipped"
+
+
+def test_anti_banal_guard_rejects_generic_and_accepts_live_expert_post():
+    from app.threads_growth import is_not_banal_smm_post
+
+    banal = "AI-бот поможет вашему бизнесу автоматизировать процессы и повышайте эффективность. Напишите нам."
+    live = VIRAL_THREADS_TEMPLATES[0]
+
+    assert not is_not_banal_smm_post(banal)
+    assert is_not_banal_smm_post(live)
+
+
+def test_growth_refill_adds_different_formats_angles_and_ctas(tmp_path):
+    queue = make_queue(tmp_path)
+
+    added = refill_growth_queue(queue, 7)
+
+    assert len({post.content_format for post in added}) >= 5
+    assert len({post.content_angle for post in added}) == len(added)
+    assert len({post.cta_type for post in added}) >= 3
+
+
+def test_growth_rebuild_removes_banal_and_reports_lower_robot_risk(tmp_path):
+    from app.threads_growth import rebuild_growth_queue, queue_smm_quality
+
+    queue = make_queue(tmp_path)
+    queue.add_post("AI-бот поможет вашему бизнесу автоматизировать процессы. Повышайте эффективность каждый день.", source="bad")
+    before = queue_smm_quality(queue)["template_risk"]
+
+    result = rebuild_growth_queue(queue, 5)
+
+    assert before == "high"
+    assert result["removed_banal"] >= 1
+    assert result["robot_like_risk"] in {"low", "medium"}
+
+
+def test_content_memory_blocks_first_sentence_format_cta_and_angle(tmp_path):
+    from app.threads_growth import content_memory_blocks, metadata_for_text
+
+    queue = make_queue(tmp_path)
+    first = add_strong_unique_post(queue, VIRAL_THREADS_TEMPLATES[0], source="test")
+    assert first is not None
+    meta = metadata_for_text(VIRAL_THREADS_TEMPLATES[0])
+    blocked, reason = content_memory_blocks(queue, VIRAL_THREADS_TEMPLATES[0], meta)
+
+    assert blocked
+    assert reason in {"first_sentence repeated inside 14 days", "content_angle repeated inside 48h"}

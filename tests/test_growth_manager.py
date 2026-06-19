@@ -33,8 +33,8 @@ def test_start_is_ai_growth_manager_and_not_legacy_menu():
 def test_telegram_menu_is_curated():
     commands = [item.command for item in BOT_COMMANDS]
     assert commands == [
-        "start", "autopilot_status", "growth_report", "growth_plan",
-        "threads_next", "threads_queue", "growth_refill", "growth_rebuild",
+        "start", "growth_report", "growth_plan", "autopilot_status",
+        "threads_next", "threads_queue", "growth_rebuild", "growth_refill",
         "sales_preview", "sales_status", "whatsapp_status", "health",
     ]
 
@@ -181,3 +181,36 @@ def test_comment_generate_rejects_forbidden_topic_with_reason(tmp_path, monkeypa
 def test_profile_intelligence_refuses_verbatim_copy():
     result = profile_analysis("Скопируй полностью и сделай точно как он", "posts")
     assert "не буду копировать чужой текст дословно" in result
+
+
+def test_threads_next_render_has_smm_reasoning(tmp_path):
+    from app.handlers.agents import render_post
+    from app.growth_content import VIRAL_THREADS_TEMPLATES
+    from app.post_queue import PostQueue
+
+    queue = PostQueue(str(tmp_path / "db.sqlite"))
+    post = queue.add_post(VIRAL_THREADS_TEMPLATES[0], source="test")
+    rendered = render_post(post)
+
+    assert "Goal:" in rendered
+    assert "Format:" in rendered
+    assert "Angle:" in rendered
+    assert "Stage:" in rendered
+    assert "CTA:" in rendered
+    assert "Why this post matters:" in rendered
+
+
+def test_growth_report_has_smm_director_report(tmp_path, monkeypatch):
+    from app.post_queue import PostQueue
+    from app.growth_content import VIRAL_THREADS_TEMPLATES
+
+    queue = PostQueue(str(tmp_path / "db.sqlite"))
+    for post in VIRAL_THREADS_TEMPLATES[:5]:
+        queue.add_post(post, source="test")
+    monkeypatch.setattr("app.handlers.agents.post_queue", queue)
+    report = build_growth_report(make_settings(str(tmp_path / "db.sqlite")))
+
+    assert "SMM Director Report" in report
+    assert "форматов в очереди" in report
+    assert "риск роботности" in report
+    assert "рекомендация SMM-директора" in report
