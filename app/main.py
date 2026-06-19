@@ -16,20 +16,18 @@ logger = logging.getLogger(__name__)
 
 BOT_COMMANDS = [
     BotCommand(command="start", description="AI Growth Manager"),
-    BotCommand(command="autopilot_status", description="Статус Safe Autopilot"),
-    BotCommand(command="growth_status", description="Статус Growth Manager"),
-    BotCommand(command="growth_report", description="Отчёт по росту"),
-    BotCommand(command="threads_queue", description="Очередь Threads"),
-    BotCommand(command="threads_next", description="Следующий draft"),
-    BotCommand(command="comment_discovery_status", description="Статус комментариев"),
-    BotCommand(command="comment_queue", description="Очередь комментариев"),
+    BotCommand(command="autopilot_status", description="Статус автопилота"),
+    BotCommand(command="growth_report", description="Отчёт за день"),
+    BotCommand(command="growth_plan", description="План на сегодня"),
+    BotCommand(command="threads_next", description="Следующий пост"),
+    BotCommand(command="threads_queue", description="Очередь постов"),
+    BotCommand(command="growth_refill", description="Пополнить очередь"),
+    BotCommand(command="growth_rebuild", description="Пересобрать очередь"),
+    BotCommand(command="sales_preview", description="Проверить ответ клиенту"),
+    BotCommand(command="sales_status", description="Статус продаж"),
+    BotCommand(command="whatsapp_status", description="WhatsApp"),
     BotCommand(command="health", description="Статус системы"),
-    BotCommand(command="sales_status", description="Статус Sales Closing Agent"),
-    BotCommand(command="sales_preview", description="Предпросмотр ответа лиду"),
-    BotCommand(command="whatsapp_status", description="Настройки WhatsApp"),
-    BotCommand(command="positioning", description="Позиционирование"),
 ]
-
 
 async def run_daily_growth_report(bot: Bot, settings) -> None:
     while True:
