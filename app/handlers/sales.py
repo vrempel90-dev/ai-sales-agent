@@ -4,6 +4,7 @@ from aiogram.types import Message
 from app.config import Settings
 from app.lead_agent import HOT_LEAD_THRESHOLD, PRICE_RANGES, build_lead_reply, hot_lead_notification
 from app.lead_store import LeadConversationService
+from app.lead_hunter import lead_hunter_reply_notification
 
 router = Router()
 
@@ -29,6 +30,12 @@ START_TEXT = """Я AI Growth Manager для Threads.
 • /sales_preview текст — проверить ответ клиенту
 • /sales_status — статус продаж
 • /whatsapp_status — WhatsApp
+
+Поиск клиентов:
+• /lead_scan текст — проверить потенциального клиента
+• /lead_queue — очередь лидов
+• /lead_next — следующий лид
+• /lead_report — отчёт
 
 Система:
 • /health

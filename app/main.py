@@ -26,6 +26,8 @@ BOT_COMMANDS = [
     BotCommand(command="sales_preview", description="Проверить ответ клиенту"),
     BotCommand(command="sales_status", description="Статус продаж"),
     BotCommand(command="whatsapp_status", description="WhatsApp"),
+    BotCommand(command="lead_scan", description="Проверить лида"),
+    BotCommand(command="lead_queue", description="Очередь лидов"),
     BotCommand(command="health", description="Статус системы"),
 ]
 

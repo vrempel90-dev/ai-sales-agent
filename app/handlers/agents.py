@@ -33,6 +33,7 @@ from app.threads_growth import (
     angle_is_blocked,
 )
 from app.comment_discovery import comment_discovery
+from app.lead_hunter import add_candidate, lead_hunter, mark_skip, next_lead, prepare_send, SAFE_SOURCE_NOTE
 from app.growth_state import growth_runtime
 from app.handlers.sales import require_owner
 from datetime import datetime, timezone
@@ -242,6 +243,95 @@ async def viral_post(message: Message):
         await message.answer("Уникальный draft не добавлен: похожий пост уже есть в очереди.")
 
 
+
+def render_lead_hunter_status(settings: Settings) -> str:
+    return (
+        "Safe Lead Hunter Agent status\n"
+        f"enabled: {'yes' if settings.lead_hunter_enabled else 'no'}\n"
+        f"auto DM enabled: {'yes' if settings.lead_hunter_auto_dm_enabled else 'no'}\n"
+        f"approval required: {'yes' if settings.lead_hunter_approval_required else 'no'}\n"
+        f"daily DM limit: {settings.lead_hunter_daily_dm_limit}\n"
+        f"messages sent today: {lead_hunter.sent_today()}\n"
+        f"leads in queue: {len(lead_hunter.drafts())}\n"
+        f"min score: {settings.lead_hunter_min_score}\n"
+        f"last action: {lead_hunter.last_action}\n"
+        f"last error: {lead_hunter.last_error or 'нет'}\n"
+        f"source mode: {SAFE_SOURCE_NOTE}"
+    )
+
+@router.message(Command("lead_hunter_status"))
+async def lead_hunter_status(message: Message, settings: Settings):
+    await message.answer(render_lead_hunter_status(settings))
+
+@router.message(Command("lead_scan"))
+async def lead_scan(message: Message, settings: Settings):
+    text = arg_text(message)
+    if not text:
+        await message.answer("Добавьте текст профиля/био/поста. Пример:\n/lead_scan салон красоты, запись в Direct")
+        return
+    data, lead, status = add_candidate(text, settings.lead_hunter_min_score)
+    next_step = "сохранён в outreach queue" if lead else ("не добавлен: дубль" if status == "duplicate" else "не добавлен: score ниже минимального")
+    await message.answer(
+        f"Niche: {data['niche']}\n"
+        f"Lead score: {data['score']}\n"
+        f"Pain hypothesis: {data['pain_hypothesis']}\n"
+        f"Why suitable / not suitable: {data['why']}\n"
+        f"Recommended first message:\n{data['draft_message']}\n\n"
+        f"Next step: {next_step}"
+    )
+
+@router.message(Command("lead_queue"))
+async def lead_queue_cmd(message: Message):
+    items = lead_hunter.drafts()
+    if not items:
+        await message.answer("Lead outreach queue пустая.")
+        return
+    await message.answer("\n\n".join(f"#{i.id} — {i.niche}, score {i.score}, status {i.status}\nSource: {i.source_text[:90]}\nDraft: {i.draft_message}" for i in items))
+
+@router.message(Command("lead_next"))
+async def lead_next_cmd(message: Message):
+    lead = next_lead()
+    if not lead:
+        await message.answer("Нет лидов в очереди.")
+        return
+    await message.answer(
+        f"Lead #{lead.id}\nNiche: {lead.niche}\nScore: {lead.score}\nReason: {lead.reason}\n"
+        f"Draft message:\n{lead.draft_message}\n\nRecommended next step: подтвердить и отправить вручную. Инструкция: /lead_send {lead.id} или отправить вручную."
+    )
+
+@router.message(Command("lead_send"))
+async def lead_send_cmd(message: Message, settings: Settings):
+    lead_id = arg_text(message)
+    if not lead_id:
+        await message.answer("Добавьте id. Пример: /lead_send abc123")
+        return
+    ok, result = prepare_send(
+        lead_id, min_score=settings.lead_hunter_min_score, daily_limit=settings.lead_hunter_daily_dm_limit,
+        approval_required=settings.lead_hunter_approval_required, auto_dm_enabled=settings.lead_hunter_auto_dm_enabled,
+    )
+    await message.answer(("Отправлено." if ok else "Не отправлено автоматически.") + "\n" + result)
+
+@router.message(Command("lead_skip"))
+async def lead_skip_cmd(message: Message):
+    lead_id = arg_text(message)
+    await message.answer("Лид пропущен." if lead_id and mark_skip(lead_id) else "Лид не найден.")
+
+@router.message(Command("lead_report"))
+async def lead_report_cmd(message: Message):
+    niches = {}
+    for i in lead_hunter.items:
+        niches[i.niche] = niches.get(i.niche, 0) + 1
+    await message.answer(
+        "Safe Lead Hunter report\n"
+        f"leads found/scanned: {lead_hunter.scanned_count}\n"
+        f"in queue: {len(lead_hunter.drafts())}\n"
+        f"messages sent: {lead_hunter.sent_today()}\n"
+        f"hot replies: {lead_hunter.hot_replies}\n"
+        f"top niches: {', '.join(f'{k}({v})' for k, v in niches.items()) or 'нет'}\n"
+        f"last action: {lead_hunter.last_action}\n"
+        f"errors: {lead_hunter.last_error or 'нет'}"
+    )
+
 @router.message(Command("growth_status"))
 async def growth_status(message: Message, settings: Settings):
     today = datetime.now(timezone.utc).date()
@@ -303,6 +393,15 @@ def build_growth_report(settings: Settings) -> str:
         f"• посты не выглядят одинаково: {'yes' if q['look_unique'] else 'no'}\n"
         f"• риск роботности: {q['template_risk']}\n"
         f"• рекомендация SMM-директора: {'Рекомендация: выполнить /growth_rebuild.' if q['template_risk'] == 'high' else ('Если очередь однотипная — нажмите /growth_rebuild.' if q['template_risk'] == 'medium' else 'держать микс форматов, angles и целей')}\n\n"
+        "Lead Hunter:\n"
+        f"leads scanned today: {lead_hunter.scanned_count}\n"
+        f"leads added to queue: {lead_hunter.added_count}\n"
+        f"outreach drafts ready: {len(lead_hunter.drafts())}\n"
+        f"messages sent today: {lead_hunter.sent_today()}\n"
+        f"replies/hot leads: {lead_hunter.hot_replies}\n"
+        f"top niches: {', '.join(sorted({i.niche for i in lead_hunter.items})) or 'нет'}\n"
+        f"last lead hunter action: {lead_hunter.last_action}\n"
+        f"last error: {lead_hunter.last_error or 'нет'}\n\n"
         "Safe Comment Discovery:\n"
         f"Найдено веток/источников: {comment_discovery.found_count}\n"
         f"Comment drafts создано: {len(comment_discovery.items)}\n"
@@ -335,6 +434,12 @@ async def autopilot_status(message: Message, settings: Settings):
         f"last autopilot error: {growth_runtime.last_error or 'none'}\n"
         "DM agent status: enabled\n"
         f"WhatsApp status: {'configured' if settings.whatsapp_contact_link or settings.whatsapp_phone else 'not configured'}\n\n"
+        "Lead Hunter:\n"
+        f"enabled: {'yes' if settings.lead_hunter_enabled else 'no'}\n"
+        f"auto DM enabled: {'yes' if settings.lead_hunter_auto_dm_enabled else 'no'}\n"
+        f"approval required: {'yes' if settings.lead_hunter_approval_required else 'no'}\n"
+        f"daily limit: {settings.lead_hunter_daily_dm_limit}\n"
+        f"queue count: {len(lead_hunter.drafts())}\n\n"
         "Safe Comment Discovery:\n"
         f"enabled: {'yes' if settings.comment_discovery_enabled else 'no'}\n"
         f"approval required: {'yes' if settings.comment_approval_required else 'no'}\n"
