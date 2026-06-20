@@ -4,6 +4,7 @@ import json
 import os
 import re
 import sqlite3
+import socket
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
@@ -59,6 +60,35 @@ class ThreadsBrowserLayer:
         self._page = None
         self.configured = self.session_configured()
 
+
+    def _browser_launch_args(self) -> list[str]:
+        return [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+            "--disable-setuid-sandbox",
+        ]
+
+    def _short_browser_error(self, exc: Exception) -> str:
+        raw = str(exc).strip() or exc.__class__.__name__
+        lowered = raw.lower()
+        if "executable doesn't exist" in lowered or "executable does not exist" in lowered or "browser executable" in lowered:
+            prefix = "executable not found"
+        elif "please run" in lowered and "playwright install" in lowered:
+            prefix = "missing browser binaries"
+        elif "host system is missing dependencies" in lowered or "missing dependencies" in lowered or "install-deps" in lowered:
+            prefix = "missing system dependencies"
+        elif "timeout" in lowered or isinstance(exc, TimeoutError):
+            prefix = "launch timeout"
+        elif "sandbox" in lowered or "no usable sandbox" in lowered:
+            prefix = "sandbox issue"
+        elif "permission denied" in lowered or "eacces" in lowered or "operation not permitted" in lowered:
+            prefix = "permission issue"
+        else:
+            prefix = "browser launch failed"
+        compact = " ".join(raw.split())
+        return f"{prefix}: {compact[:220]}"
+
     def playwright_installed(self) -> bool:
         try:
             import playwright.sync_api  # noqa: F401
@@ -72,11 +102,21 @@ class ThreadsBrowserLayer:
 
     def check_browser_ready(self) -> BrowserStatus:
         installed = self.playwright_installed()
-        ready = bool(self.enabled and installed and self.session_configured())
+        session = self.session_configured()
+        ready = bool(self.enabled and installed and session)
+        if ready and self._page is None:
+            launched, reason = self.load_session()
+            ready = launched
+            if not launched and not self.last_browser_error:
+                self.last_browser_error = reason
+        if self.enabled and not self.headless:
+            host = socket.gethostname().lower()
+            if "railway" in os.environ or "RAILWAY_ENVIRONMENT" in os.environ or "railway" in host:
+                self.last_browser_error = self.last_browser_error or "headless=false is not recommended on Railway; set AUTONOMOUS_THREADS_BROWSER_HEADLESS=true"
         return BrowserStatus(
             playwright_installed=installed,
             browser_mode_enabled=self.enabled,
-            session_configured=self.session_configured(),
+            session_configured=session,
             browser_ready=ready,
             live_comments_ready=bool(ready and not getattr(self.settings, "autonomous_threads_agent_dry_run", True) and getattr(self.settings, "autonomous_threads_comments_enabled", False)),
             live_dm_ready=False,
@@ -95,9 +135,11 @@ class ThreadsBrowserLayer:
             from playwright.sync_api import sync_playwright
             self._playwright = sync_playwright().start()
             if self.user_data_dir:
-                self._context = self._playwright.chromium.launch_persistent_context(self.user_data_dir, headless=self.headless)
+                self._context = self._playwright.chromium.launch_persistent_context(
+                    self.user_data_dir, headless=self.headless, args=self._browser_launch_args()
+                )
             else:
-                self._browser = self._playwright.chromium.launch(headless=self.headless)
+                self._browser = self._playwright.chromium.launch(headless=self.headless, args=self._browser_launch_args())
                 kwargs: dict[str, Any] = {}
                 if self.session_file and os.path.exists(self.session_file):
                     kwargs["storage_state"] = self.session_file
@@ -107,7 +149,8 @@ class ThreadsBrowserLayer:
             self._page = self._context.new_page()
             return True, "ok"
         except Exception as exc:
-            self.last_browser_error = str(exc)
+            self.last_browser_error = self._short_browser_error(exc)
+            self.close_browser()
             return False, "browser_unavailable"
 
     def open_threads_home(self) -> tuple[bool, str]:

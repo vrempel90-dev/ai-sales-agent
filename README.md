@@ -327,18 +327,31 @@ Daily report в 21:00 Asia/Almaty включает контент, поиск, �
 
 The Autonomous Threads Growth Agent now has an optional Playwright browser layer for Threads web. It is safe by default: `AUTONOMOUS_THREADS_BROWSER_MODE=false`, `AUTONOMOUS_THREADS_COMMENTS_ENABLED=false`, `AUTONOMOUS_THREADS_DMS_ENABLED=false`, and `AUTONOMOUS_THREADS_AGENT_DRY_RUN=true`.
 
-### Railway / browser setup
+### Railway Playwright setup
+
+Railway needs two separate pieces for the Threads Browser Layer: the Python package from `requirements.txt` (`playwright`) and the actual Chromium browser binary. Having only the Python package is not enough; `/agent_browser_test` will report `browser_unavailable` when Chromium or its system libraries are missing.
+
+This repository installs Chromium at build time for both supported deploy styles:
+
+- `Dockerfile` runs `python -m playwright install --with-deps chromium` after `pip install -r requirements.txt`.
+- `nixpacks.toml` runs `python -m playwright install chromium` during the Nixpacks install phase.
+
+Keep `AUTONOMOUS_THREADS_BROWSER_HEADLESS=true` on Railway. The browser launches with container-safe flags: `--no-sandbox`, `--disable-dev-shm-usage`, `--disable-gpu`, and `--disable-setuid-sandbox`. If browser launch still fails, the bot must continue to start normally; use `/agent_browser_status` or `/agent_browser_test` and check `last browser error` for the short reason, for example missing browser binaries, missing system dependencies, launch timeout, sandbox issue, or permission issue.
 
 1. Install Python dependencies from `requirements.txt`.
-2. Install Playwright browsers during deploy/startup if your Railway image does not already include Chromium:
+2. Install Playwright browsers during the build/install phase if your Railway image does not already include Chromium:
    ```bash
    python -m playwright install chromium
+   ```
+   If the image is missing OS libraries and permits dependency installation, use:
+   ```bash
+   python -m playwright install --with-deps chromium
    ```
 3. Configure one session source; the bot never stores or asks for a Threads password:
    - `AUTONOMOUS_THREADS_COOKIES_JSON` — exported cookies from an already-authorized web session.
    - `AUTONOMOUS_THREADS_SESSION_FILE` — Playwright storage-state JSON path.
    - `AUTONOMOUS_THREADS_USER_DATA_DIR=/tmp/threads-profile` — persistent profile directory, preferably backed by a Railway volume.
-4. First keep `AUTONOMOUS_THREADS_AGENT_DRY_RUN=true` and run `/agent_browser_test`.
+4. First keep `AUTONOMOUS_THREADS_AGENT_DRY_RUN=true` and run `/agent_browser_test`; if it says `browser_unavailable`, read `last browser error` before changing live-action flags.
 5. To allow one live comment per run, set `AUTONOMOUS_THREADS_AGENT_DRY_RUN=false`, `AUTONOMOUS_THREADS_BROWSER_MODE=true`, `AUTONOMOUS_THREADS_COMMENTS_ENABLED=true`, provide a valid session, and keep `AUTONOMOUS_THREADS_DMS_ENABLED=false`.
 
 New owner commands:

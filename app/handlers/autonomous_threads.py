@@ -18,7 +18,11 @@ def get_agent(settings: Settings) -> AutonomousThreadsAgent:
     return agent
 
 def _browser_status(settings: Settings):
-    return ThreadsBrowserLayer(settings).check_browser_ready()
+    layer = ThreadsBrowserLayer(settings)
+    try:
+        return layer.check_browser_ready()
+    finally:
+        layer.close_browser()
 
 def build_agent_status(settings: Settings) -> str:
     agent = get_agent(settings)
@@ -105,7 +109,9 @@ async def agent_browser_test(message: Message, settings: Settings):
     if not await require_owner(message, settings): return
     layer = ThreadsBrowserLayer(settings)
     bs = layer.check_browser_ready()
-    opened, reason = (False, "browser not ready")
+    opened, reason = (False, "browser_unavailable" if bs.session_configured and bs.last_browser_error else "browser not ready")
+    if not bs.browser_ready and bs.last_browser_error:
+        bs.login_state = "browser_unavailable"
     if bs.browser_ready:
         opened, reason = layer.open_threads_home()
         bs.can_open_threads_home = opened
@@ -117,6 +123,7 @@ async def agent_browser_test(message: Message, settings: Settings):
         f"session configured: {'yes' if bs.session_configured else 'no'}\n"
         f"can open Threads home: {'yes' if opened else 'no'}\n"
         f"login state: {bs.login_state}\n"
+        f"last browser error: {layer.last_browser_error or bs.last_browser_error or 'none'}\n"
         f"reason: {reason}"
     )
 
