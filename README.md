@@ -24,7 +24,7 @@ app/
   models.py            Post, Contact, Conversation, Lead
   schemas.py           Pydantic API-схемы
   prompts.py           системные промты
-  ai.py                OpenAI wrapper с fallback и retry
+  ai.py                LLM provider wrapper: Ollama/OpenAI с fallback и retry
   threads_api.py       wrapper Threads / Meta Graph API
   content_agent.py     генерация и сохранение постов
   comment_agent.py     ответы, квалификация, скоринг
@@ -61,6 +61,11 @@ curl http://127.0.0.1:8000/health
 ## Переменные окружения
 
 ```env
+LLM_PROVIDER=ollama
+
+OLLAMA_BASE_URL=http://ollama:11434
+OLLAMA_MODEL=llama3.2:1b
+
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4o-mini
 
@@ -79,6 +84,28 @@ LEAD_SCORE_THRESHOLD=70
 ```
 
 Если Threads или Telegram токены не заданы, приложение логирует warning и продолжает работать. Секреты не выводятся в логах.
+
+## AI provider
+
+По умолчанию агент использует Ollama:
+
+```env
+LLM_PROVIDER=ollama
+OLLAMA_BASE_URL=http://ollama:11434
+OLLAMA_MODEL=llama3.2:1b
+```
+
+Для Railway нужен отдельный Ollama service/container в том же проекте или внешний Ollama URL, доступный из Railway. Если Ollama недоступна, приложение не падает: оно логирует warning и возвращает безопасные fallback-ответы для AI-функций.
+
+Чтобы переключиться на OpenAI, задайте:
+
+```env
+LLM_PROVIDER=openai
+OPENAI_API_KEY=your_api_key
+OPENAI_MODEL=gpt-4o-mini
+```
+
+Секреты не выводятся в логах. На старте приложение показывает выбранный `llm_provider`, факт настройки OpenAI, факт настройки Ollama base URL и модель Ollama.
 
 ## Railway deploy
 
