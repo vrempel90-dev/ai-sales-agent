@@ -5,6 +5,7 @@ from app.autonomous_threads_agent import AutonomousThreadsAgent
 from app.threads_browser_layer import ThreadsBrowserLayer
 from app.config import Settings
 from app.handlers.sales import require_owner
+from app.threads_worker_client import ThreadsWorkerQueue
 
 router = Router()
 _agent_cache: dict[str, AutonomousThreadsAgent] = {}
@@ -33,6 +34,7 @@ async def build_agent_status(settings: Settings) -> str:
         f"enabled: {agent.runtime_enabled}\n"
         f"auto start: {settings.autonomous_threads_agent_auto_start}\n"
         f"dry run: {agent.dry_run}\n"
+        f"browser execution mode: {settings.threads_browser_execution_mode}\n"
         f"browser mode: {settings.autonomous_threads_browser_mode} ({browser_note})\n"
         f"browser dependencies: {'yes' if bs.playwright_installed else 'no'}\n"
         f"session configured: {'yes' if bs.session_configured else 'no'}\n"
@@ -125,6 +127,50 @@ async def agent_browser_test(message: Message, settings: Settings):
         f"login state: {bs.login_state}\n"
         f"last browser error: {layer.last_browser_error or bs.last_browser_error or 'none'}\n"
         f"reason: {reason}"
+    )
+
+
+
+def _worker_queue(settings: Settings) -> ThreadsWorkerQueue:
+    return ThreadsWorkerQueue(settings.database_path)
+
+@router.message(Command("agent_worker_status"))
+async def agent_worker_status(message: Message, settings: Settings):
+    summary = _worker_queue(settings).status_summary()
+    await message.answer(
+        "🖥 Local Threads Browser Worker — status\n"
+        f"execution mode: {settings.threads_browser_execution_mode}\n"
+        f"worker connected: {'yes' if summary['worker_connected'] else 'no'}\n"
+        f"pending tasks: {summary['pending']}\n"
+        f"running tasks: {summary['running']}\n"
+        f"completed today: {summary['completed_today']}\n"
+        f"failed today: {summary['failed_today']}\n"
+        f"last worker heartbeat: {summary['last_worker_heartbeat'] or 'none'}\n"
+        f"last worker error: {summary['last_worker_error'] or 'none'}\n"
+        "DM: disabled/manual only"
+    )
+
+@router.message(Command("agent_worker_test"))
+async def agent_worker_test(message: Message, settings: Settings):
+    if not await require_owner(message, settings): return
+    task = _worker_queue(settings).create_task("browser_test")
+    await message.answer(
+        "🧪 browser_test task queued for local worker.\n"
+        f"task_id: {task.task_id}\n"
+        "Worker will open Threads home and return opened/login_state/captcha_checkpoint. No comments, no DMs."
+    )
+
+@router.message(Command("agent_worker_run_once"))
+async def agent_worker_run_once(message: Message, settings: Settings):
+    if not await require_owner(message, settings): return
+    agent = get_agent(settings)
+    task = _worker_queue(settings).create_task("scan_threads", keyword=agent._first_search_keyword())
+    agent.record("scan", task.task_id, status="queued", reason="local_worker_run_once", content=task.keyword)
+    await message.answer(
+        "▶️ One local-worker task queued.\n"
+        f"task_id: {task.task_id}\n"
+        f"keyword: {task.keyword}\n"
+        "Worker will find one relevant thread, score it, prepare a comment, and only publish if comments are enabled and dry_run=false. DM remains manual only."
     )
 
 @router.message(Command("agent_report"))

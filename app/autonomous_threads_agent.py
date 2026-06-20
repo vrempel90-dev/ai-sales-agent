@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from app.threads_browser_layer import ThreadsBrowserLayer, duplicate_guard, semantic_key
+from app.threads_worker_client import ThreadsWorkerQueue
 
 BLOCKING_STATES = {"captcha", "checkpoint", "rate_limit", "action_blocked", "login_issue", "suspicious_activity", "session_expired", "interface_changed"}
 KEYWORDS = [
@@ -48,7 +49,10 @@ class ThreadsBrowserAgent:
 class AutonomousThreadsAgent:
     def __init__(self, settings, browser: ThreadsBrowserAgent | None = None):
         self.settings = settings
-        self.browser = browser or (ThreadsBrowserLayer(settings) if getattr(settings, "autonomous_threads_browser_mode", False) else ThreadsBrowserAgent())
+        mode = getattr(settings, "threads_browser_execution_mode", "disabled")
+        use_railway_browser = mode == "railway_browser" or (mode == "disabled" and getattr(settings, "autonomous_threads_browser_mode", False))
+        self.browser = browser or (ThreadsBrowserLayer(settings) if use_railway_browser else ThreadsBrowserAgent())
+        self.worker_queue = ThreadsWorkerQueue(settings.database_path)
         self.runtime_enabled = bool(settings.autonomous_threads_agent_enabled)
         self.dry_run = bool(settings.autonomous_threads_agent_dry_run)
         self.stopped_reason = ""
@@ -107,13 +111,22 @@ class AutonomousThreadsAgent:
     async def run_once_async(self) -> AgentActionResult:
         if getattr(self.settings, "autonomous_threads_dms_enabled", False):
             self.last_error = "Live DM is not implemented yet. DM remains disabled/manual."
-        if getattr(self.settings, "autonomous_threads_browser_mode", False) and not self.dry_run:
+        mode = getattr(self.settings, "threads_browser_execution_mode", "disabled")
+        if mode == "local_worker":
+            task = self.worker_queue.create_task("scan_threads", keyword=self._first_search_keyword())
+            self.record("scan", task.task_id, status="queued", reason="local_worker", content=task.keyword)
+            return AgentActionResult(skipped_reason=f"queued_local_worker:{task.task_id}")
+        if (mode == "railway_browser" or getattr(self.settings, "autonomous_threads_browser_mode", False)) and not self.dry_run:
             return await self._run_browser_live_once()
         return self._run_once_sync()
 
     def _run_once_sync(self) -> AgentActionResult:
         if getattr(self.settings, "autonomous_threads_dms_enabled", False):
             self.last_error = "Live DM is not implemented yet. DM remains disabled/manual."
+        if getattr(self.settings, "threads_browser_execution_mode", "disabled") == "local_worker":
+            task = self.worker_queue.create_task("scan_threads", keyword=self._first_search_keyword())
+            self.record("scan", task.task_id, status="queued", reason="local_worker", content=task.keyword)
+            return AgentActionResult(skipped_reason=f"queued_local_worker:{task.task_id}")
         if getattr(self.settings, "autonomous_threads_browser_mode", False) and not self.dry_run:
             return self._run_browser_live_once()
         blocking = self.browser.detect_blocking_state()
@@ -175,11 +188,17 @@ class AutonomousThreadsAgent:
                 return result
         result.skipped_reason = "no_relevant_threads"; return result
 
+    def _first_search_keyword(self) -> str:
+        keywords = [k.strip() for k in self.settings.autonomous_threads_search_keywords.split(",") if k.strip()]
+        base = keywords[0] if keywords else "заявки"
+        return f"{base} {self.settings.autonomous_threads_city}".strip()
+
     def can_comment(self, thread_id: str, score: int, comment: str, profile_url: str = "", semantic_key_value: str = "", duplicate_ok: bool = True, duplicate_reason: str = "ok"):
         if self.dry_run: return score >= self.settings.autonomous_threads_min_comment_score and is_safe_comment(comment), "dry_run_prepare"
         if not self.settings.autonomous_threads_comments_enabled: return False, "comments_disabled"
         if score < self.settings.autonomous_threads_min_comment_score: return False, "low_score"
         if self.count_today("comment", "sent") >= self.settings.autonomous_threads_daily_comment_limit: return False, "daily_comment_limit"
+        if getattr(self.settings, "threads_browser_execution_mode", "disabled") == "local_worker": return True, "local_worker_allowed"
         if not getattr(self.settings, "autonomous_threads_browser_mode", False): return False, "browser_mode_disabled"
         if hasattr(self.browser, "session_configured") and not self.browser.session_configured(): return False, "session not configured"
         if not self.is_working_time(): return False, "outside_working_hours"

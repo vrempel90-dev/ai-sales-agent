@@ -121,6 +121,7 @@ class Settings:
     autonomous_threads_max_delay_minutes: int = 120
     autonomous_threads_comments_enabled: bool = False
     autonomous_threads_dms_enabled: bool = False
+    threads_browser_execution_mode: str = "disabled"
     autonomous_threads_browser_mode: bool = False
     autonomous_threads_browser_headless: bool = True
     autonomous_threads_session_file: str = ""
@@ -240,6 +241,7 @@ def get_settings() -> Settings:
         autonomous_threads_max_delay_minutes=_int_env("AUTONOMOUS_THREADS_MAX_DELAY_MINUTES", 120),
         autonomous_threads_comments_enabled=_bool_env("AUTONOMOUS_THREADS_COMMENTS_ENABLED", "false"),
         autonomous_threads_dms_enabled=_bool_env("AUTONOMOUS_THREADS_DMS_ENABLED", "false"),
+        threads_browser_execution_mode=os.getenv("THREADS_BROWSER_EXECUTION_MODE", "disabled").strip().lower(),
         autonomous_threads_browser_mode=_bool_env("AUTONOMOUS_THREADS_BROWSER_MODE", "false"),
         autonomous_threads_browser_headless=_bool_env("AUTONOMOUS_THREADS_BROWSER_HEADLESS", "true"),
         autonomous_threads_session_file=os.getenv("AUTONOMOUS_THREADS_SESSION_FILE", "").strip(),

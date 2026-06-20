@@ -362,3 +362,61 @@ New owner commands:
 Live comments are gated by dry-run off, browser mode on, comments enabled, configured session, Playwright readiness, score threshold, safety checks, duplicate history, daily limit, and absence of captcha/checkpoint/rate-limit/action-blocked/login issues. If no session is configured, the layer reports `session not configured` and dry-run still works. If Threads shows captcha, checkpoint, rate limit, action blocked, suspicious activity, session expiry, login issue, or selector/interface changes, the agent stops and records the reason; it does not try to bypass protections.
 
 Live DMs are intentionally not implemented. Even if `AUTONOMOUS_THREADS_DMS_ENABLED=true`, the agent reports: `Live DM is not implemented yet. DM remains disabled/manual.`
+
+## Local Threads Browser Worker
+
+Railway/headless browser can trigger Threads captcha/checkpoint because it runs from a
+cloud datacenter. In `local_worker` mode Railway stays the brain of the agent
+(Telegram bot, reports, planning and task queue), while a worker on the user's PC is
+the hands of the agent: it opens Threads in a normal local Chrome profile, reads
+context, scores a thread, prepares a safe comment and returns the result to storage.
+
+Safety rules remain strict: no password is stored, Railway does not keep Threads
+cookies, captcha/checkpoint is never bypassed, DM is disabled/manual only, no mass DM,
+no spam, no links/prices in first-touch comments, no duplicate thread/profile/comment,
+maximum 5 comments per day and the worker stops on captcha/checkpoint/rate limit/action
+blocked.
+
+Railway env:
+
+```env
+THREADS_BROWSER_EXECUTION_MODE=local_worker
+```
+
+Possible values:
+
+- `disabled` — default; no browser automation runs.
+- `railway_browser` — legacy Railway browser mode, still guarded by session/safety checks.
+- `local_worker` — Railway creates tasks only; the local worker executes browser actions.
+
+Local PC / Windows setup:
+
+```bash
+pip install -r requirements.txt
+python -m playwright install chromium
+python scripts/run_threads_worker.py
+```
+
+Optional local env:
+
+```env
+LOCAL_THREADS_USER_DATA_DIR=./threads_chrome_profile
+LOCAL_THREADS_HEADLESS=false
+LOCAL_THREADS_POLL_INTERVAL_SECONDS=30
+```
+
+On first launch Chrome opens with the persistent profile. Log in to Threads manually;
+the profile is then reused on the same PC. If Threads asks for captcha/checkpoint, solve
+it manually in Chrome. The worker stops and reports `blocked`; it does not bypass Meta
+protection.
+
+Telegram checks:
+
+- `/agent_worker_status` — execution mode, connected worker, pending/running tasks,
+  completed/failed today, heartbeat and last worker error.
+- `/agent_worker_test` — queues a safe `browser_test` task to open Threads home and
+  report opened/login state/captcha-checkpoint state.
+- `/agent_worker_run_once` — queues one local-worker scan/comment-preparation task.
+
+Only after `/agent_worker_test` is healthy should live comments be enabled. Live DM is
+not implemented and remains manual-only even when a DM opportunity is found.
