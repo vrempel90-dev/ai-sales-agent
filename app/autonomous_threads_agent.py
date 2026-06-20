@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import re
 import sqlite3
 from dataclasses import dataclass
@@ -99,6 +100,18 @@ class AutonomousThreadsAgent:
                 f"working hours: {self.settings.autonomous_threads_start_hour}:00-{self.settings.autonomous_threads_end_hour}:00 {self.settings.autonomous_threads_agent_timezone}")
 
     def run_once(self) -> AgentActionResult:
+        if getattr(self.settings, "autonomous_threads_browser_mode", False) and not self.dry_run:
+            return asyncio.run(self.run_once_async())
+        return self._run_once_sync()
+
+    async def run_once_async(self) -> AgentActionResult:
+        if getattr(self.settings, "autonomous_threads_dms_enabled", False):
+            self.last_error = "Live DM is not implemented yet. DM remains disabled/manual."
+        if getattr(self.settings, "autonomous_threads_browser_mode", False) and not self.dry_run:
+            return await self._run_browser_live_once()
+        return self._run_once_sync()
+
+    def _run_once_sync(self) -> AgentActionResult:
         if getattr(self.settings, "autonomous_threads_dms_enabled", False):
             self.last_error = "Live DM is not implemented yet. DM remains disabled/manual."
         if getattr(self.settings, "autonomous_threads_browser_mode", False) and not self.dry_run:
@@ -125,14 +138,14 @@ class AutonomousThreadsAgent:
             return result
         result.skipped_reason = "no_relevant_threads"; return result
 
-    def _run_browser_live_once(self) -> AgentActionResult:
+    async def _run_browser_live_once(self) -> AgentActionResult:
         result = AgentActionResult()
-        status = self.browser.check_browser_ready() if hasattr(self.browser, "check_browser_ready") else None
+        status = await self.browser.check_browser_ready() if hasattr(self.browser, "check_browser_ready") else None
         if status and not status.session_configured:
             result.skipped_reason = "session not configured"; self.record("comment", status="skipped", reason=result.skipped_reason); return result
         if status and not status.browser_ready:
             result.skipped_reason = status.last_browser_error or "browser_unavailable"; self.record("comment", status="skipped", reason=result.skipped_reason); return result
-        ok, reason = self.browser.open_threads_home()
+        ok, reason = await self.browser.open_threads_home()
         if not ok:
             if reason in BLOCKING_STATES:
                 self.stop_agent(reason)
@@ -140,14 +153,14 @@ class AutonomousThreadsAgent:
         keywords = [k.strip() for k in self.settings.autonomous_threads_search_keywords.split(",") if k.strip()]
         city = self.settings.autonomous_threads_city
         for kw in keywords[:5]:
-            candidates = self.browser.search_threads(f"{kw} {city}".strip())[:10]
+            candidates = (await self.browser.search_threads(f"{kw} {city}".strip()))[:10]
             for cand in candidates:
                 self.record("scan", cand.thread_url, cand.profile_url, status="ok", content=cand.text[:500])
-                ok, reason = self.browser.open_thread(cand.thread_url)
+                ok, reason = await self.browser.open_thread(cand.thread_url)
                 if not ok:
                     if reason in BLOCKING_STATES: self.stop_agent(reason)
                     continue
-                text = self.browser.read_thread_context() or cand.text
+                text = await self.browser.read_thread_context() or cand.text
                 score = score_thread_text(text); result.score = score
                 comment = generate_comment_text(text)
                 dup_ok, dup_reason = duplicate_guard(self.settings.database_path, cand.thread_url, cand.profile_url, comment, cand.semantic_key or semantic_key(text))
@@ -155,7 +168,7 @@ class AutonomousThreadsAgent:
                 if not can:
                     self.browser.save_action_history(self.settings.database_path, thread_url=cand.thread_url, profile_url=cand.profile_url, keyword=kw, score=score, comment_text=comment, action_status="skipped", sent_at=datetime.utcnow().isoformat(), skipped_reason=can_reason, browser_error=self.browser.last_browser_error, semantic_key=cand.semantic_key)
                     self.record("comment", cand.thread_url, cand.profile_url, score, "skipped", can_reason, comment); continue
-                sent, pub_reason = self.browser.publish_comment(cand, comment)
+                sent, pub_reason = await self.browser.publish_comment(cand, comment)
                 self.browser.save_action_history(self.settings.database_path, thread_url=cand.thread_url, profile_url=cand.profile_url, keyword=kw, score=score, comment_text=comment, action_status="sent" if sent else "skipped", sent_at=datetime.utcnow().isoformat(), skipped_reason="" if sent else pub_reason, browser_error=self.browser.last_browser_error, semantic_key=cand.semantic_key)
                 self.record("comment", cand.thread_url, cand.profile_url, score, "sent" if sent else "skipped", pub_reason, comment)
                 result.published_comment = bool(sent); result.skipped_reason = "" if sent else pub_reason
@@ -194,16 +207,34 @@ class AutonomousThreadsAgent:
 
     def report(self) -> str:
         scans = self.count_today("scan"); trash = self.count_today("skip", "skipped"); comments_sent = self.count_today("comment", "sent"); comments_prepared = self.count_today("comment", "prepared"); dms_sent = self.count_today("dm", "sent"); dms_prepared = self.count_today("dm", "prepared"); stops = self.count_today("stop", "blocked")
-        bs = self.browser.check_browser_ready() if hasattr(self.browser, "check_browser_ready") else None
+        bs = None
+
         session = "yes" if bs and bs.session_configured else "no"
         browser_ready = "yes" if bs and bs.browser_ready else "no"
         unavailable = "Live DM is not implemented yet. DM remains disabled/manual."
+        browser_error = getattr(self.browser, 'last_browser_error', '') or ('Browser mode is not configured' if self.settings.autonomous_threads_browser_mode and not bs else 'нет')
         return ("📊 Autonomous Threads Growth Agent — daily report\n\n📝 Контент:\n• posts published: 0\n• queue: managed by Threads autoposting\n\n"
                 f"🔍 Поиск:\n• threads scanned: {scans}\n• trash skipped: {trash}\n• relevant threads: {max(0, scans-trash)}\n\n"
                 f"💬 Комментарии:\n• comments sent: {comments_sent}\n• comments prepared: {comments_prepared}\n• skipped by safety: {self.count_today('comment','skipped')}\n• skipped duplicates: tracked\n\n"
                 f"📩 DM:\n• DMs sent: {dms_sent}\n• DM closed: tracked\n• skipped: {self.count_today('dm','skipped')}\n• {unavailable}\n\n"
                 "🔥 Лиды:\n• leads found: tracked from relevant threads\n• score 80+: tracked\n• hot leads: owner notification on inbound/handoff\n\n"
-                f"🌐 Browser Layer:\n• browser mode: {self.settings.autonomous_threads_browser_mode}\n• browser ready: {browser_ready}\n• session: {session}\n• comments live enabled: {self.settings.autonomous_threads_comments_enabled}\n• DMs live enabled: no\n• threads scanned: {scans}\n• candidates found: {max(0, scans-trash)}\n• comments sent: {comments_sent}\n• comments prepared: {comments_prepared}\n• skipped safety: {self.count_today('comment','skipped')}\n• skipped duplicate: tracked\n• skipped no session: tracked\n• skipped browser unavailable: tracked\n• browser errors: {getattr(self.browser, 'last_browser_error', '') or ('Browser mode is not configured' if self.settings.autonomous_threads_browser_mode and bs and not bs.session_configured else 'нет')}\n• stopped reason: {self.stopped_reason or getattr(self.browser, 'stopped_reason', '') or 'none'}\n\n"
+                f"🌐 Browser Layer:\n• browser mode: {self.settings.autonomous_threads_browser_mode}\n• browser ready: {browser_ready}\n• session: {session}\n• comments live enabled: {self.settings.autonomous_threads_comments_enabled}\n• DMs live enabled: no\n• threads scanned: {scans}\n• candidates found: {max(0, scans-trash)}\n• comments sent: {comments_sent}\n• comments prepared: {comments_prepared}\n• skipped safety: {self.count_today('comment','skipped')}\n• skipped duplicate: tracked\n• skipped no session: tracked\n• skipped browser unavailable: tracked\n• browser errors: {browser_error}\n• stopped reason: {self.stopped_reason or getattr(self.browser, 'stopped_reason', '') or 'none'}\n\n"
+                f"⚠️ Ошибки:\n• captcha/checkpoint/rate limit/action blocked: {stops}\n• browser issue: {getattr(self.browser, 'last_browser_error', '') or 'нет'}\n• API issue: {self.last_error or 'нет'}\n\n🧠 Рекомендация на завтра:\nУсилить поиск по нишам Алматы и не превышать лимиты.")
+
+
+    async def report_async(self) -> str:
+        scans = self.count_today("scan"); trash = self.count_today("skip", "skipped"); comments_sent = self.count_today("comment", "sent"); comments_prepared = self.count_today("comment", "prepared"); dms_sent = self.count_today("dm", "sent"); dms_prepared = self.count_today("dm", "prepared"); stops = self.count_today("stop", "blocked")
+        bs = await self.browser.check_browser_ready() if hasattr(self.browser, "check_browser_ready") else None
+        session = "yes" if bs and bs.session_configured else "no"
+        browser_ready = "yes" if bs and bs.browser_ready else "no"
+        unavailable = "Live DM is not implemented yet. DM remains disabled/manual."
+        browser_error = getattr(self.browser, 'last_browser_error', '') or ('Browser mode is not configured' if self.settings.autonomous_threads_browser_mode and bs and not bs.session_configured else 'нет')
+        return ("📊 Autonomous Threads Growth Agent — daily report\n\n📝 Контент:\n• posts published: 0\n• queue: managed by Threads autoposting\n\n"
+                f"🔍 Поиск:\n• threads scanned: {scans}\n• trash skipped: {trash}\n• relevant threads: {max(0, scans-trash)}\n\n"
+                f"💬 Комментарии:\n• comments sent: {comments_sent}\n• comments prepared: {comments_prepared}\n• skipped by safety: {self.count_today('comment','skipped')}\n• skipped duplicates: tracked\n\n"
+                f"📩 DM:\n• DMs sent: {dms_sent}\n• DM closed: tracked\n• skipped: {self.count_today('dm','skipped')}\n• {unavailable}\n\n"
+                "🔥 Лиды:\n• leads found: tracked from relevant threads\n• score 80+: tracked\n• hot leads: owner notification on inbound/handoff\n\n"
+                f"🌐 Browser Layer:\n• browser mode: {self.settings.autonomous_threads_browser_mode}\n• browser ready: {browser_ready}\n• session: {session}\n• comments live enabled: {self.settings.autonomous_threads_comments_enabled}\n• DMs live enabled: no\n• threads scanned: {scans}\n• candidates found: {max(0, scans-trash)}\n• comments sent: {comments_sent}\n• comments prepared: {comments_prepared}\n• skipped safety: {self.count_today('comment','skipped')}\n• skipped duplicate: tracked\n• skipped no session: tracked\n• skipped browser unavailable: tracked\n• browser errors: {browser_error}\n• stopped reason: {self.stopped_reason or getattr(self.browser, 'stopped_reason', '') or 'none'}\n\n"
                 f"⚠️ Ошибки:\n• captcha/checkpoint/rate limit/action blocked: {stops}\n• browser issue: {getattr(self.browser, 'last_browser_error', '') or 'нет'}\n• API issue: {self.last_error or 'нет'}\n\n🧠 Рекомендация на завтра:\nУсилить поиск по нишам Алматы и не превышать лимиты.")
 
 
