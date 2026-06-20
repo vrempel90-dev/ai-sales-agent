@@ -89,7 +89,7 @@ LEAD_SCORE_THRESHOLD=70
 5. Railway использует `railway.json` или `Procfile`:
 
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port $PORT
+sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}'
 ```
 
 ## Threads API
