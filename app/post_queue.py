@@ -3,7 +3,9 @@ from datetime import date, datetime, timedelta, timezone
 import os
 import sqlite3
 
-VALID_STATUSES = {"draft", "approved", "published", "skipped", "failed"}
+ACTIVE_STATUSES = {"draft", "approved", "scheduled", "ready"}
+REJECTED_STATUSES = {"skipped", "rejected", "duplicate", "weak", "rejected_low_uniqueness", "rejected_angle_duplicate", "rejected_old_duplicate", "rejected_hook_duplicate"}
+VALID_STATUSES = ACTIVE_STATUSES | REJECTED_STATUSES | {"published", "failed"}
 
 
 @dataclass
@@ -34,6 +36,10 @@ class QueuedPost:
     quality_score: int | None = None
     hash: str | None = None
     semantic_key: str | None = None
+    generation_source: str | None = None
+    fallback_used: int | None = None
+    llm_model: str | None = None
+    creative_brief_id: str | None = None
 
 
 class PostQueue:
@@ -82,13 +88,17 @@ class PostQueue:
                     uniqueness_score INTEGER,
                     quality_score INTEGER,
                     hash TEXT,
-                    semantic_key TEXT
+                    semantic_key TEXT,
+                    generation_source TEXT,
+                    fallback_used INTEGER,
+                    llm_model TEXT,
+                    creative_brief_id TEXT
                 )
                 """
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_threads_posts_status ON threads_posts(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_threads_posts_published_at ON threads_posts(published_at)")
-            for column, definition in (("normalized_text", "TEXT"), ("hook", "TEXT"), ("content_angle", "TEXT"), ("content_format", "TEXT"), ("rubric", "TEXT"), ("goal", "TEXT"), ("niche", "TEXT"), ("cta_type", "TEXT"), ("hook_type", "TEXT"), ("pain_angle", "TEXT"), ("target_audience", "TEXT"), ("structure_type", "TEXT"), ("viral_score", "INTEGER"), ("uniqueness_score", "INTEGER"), ("quality_score", "INTEGER"), ("hash", "TEXT"), ("semantic_key", "TEXT")):
+            for column, definition in (("normalized_text", "TEXT"), ("hook", "TEXT"), ("content_angle", "TEXT"), ("content_format", "TEXT"), ("rubric", "TEXT"), ("goal", "TEXT"), ("niche", "TEXT"), ("cta_type", "TEXT"), ("hook_type", "TEXT"), ("pain_angle", "TEXT"), ("target_audience", "TEXT"), ("structure_type", "TEXT"), ("viral_score", "INTEGER"), ("uniqueness_score", "INTEGER"), ("quality_score", "INTEGER"), ("hash", "TEXT"), ("semantic_key", "TEXT"), ("generation_source", "TEXT"), ("fallback_used", "INTEGER"), ("llm_model", "TEXT"), ("creative_brief_id", "TEXT")):
                 existing = [row[1] for row in conn.execute("PRAGMA table_info(threads_posts)").fetchall()]
                 if column not in existing:
                     conn.execute(f"ALTER TABLE threads_posts ADD COLUMN {column} {definition}")
@@ -108,12 +118,16 @@ class PostQueue:
                     cta_type TEXT,
                     structure_type TEXT,
                     hash TEXT,
-                    semantic_key TEXT
+                    semantic_key TEXT,
+                    generation_source TEXT,
+                    fallback_used INTEGER,
+                    llm_model TEXT,
+                    creative_brief_id TEXT
                 )
                 """
             )
             existing_dup = [row[1] for row in conn.execute("PRAGMA table_info(threads_duplicate_events)").fetchall()]
-            for column, definition in (("content_angle", "TEXT"), ("pain_angle", "TEXT"), ("cta_type", "TEXT"), ("structure_type", "TEXT"), ("hash", "TEXT"), ("semantic_key", "TEXT")):
+            for column, definition in (("content_angle", "TEXT"), ("pain_angle", "TEXT"), ("cta_type", "TEXT"), ("structure_type", "TEXT"), ("hash", "TEXT"), ("semantic_key", "TEXT"), ("generation_source", "TEXT"), ("fallback_used", "INTEGER"), ("llm_model", "TEXT"), ("creative_brief_id", "TEXT")):
                 if column not in existing_dup:
                     conn.execute(f"ALTER TABLE threads_duplicate_events ADD COLUMN {column} {definition}")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_threads_duplicate_events_skipped_at ON threads_duplicate_events(skipped_at)")
@@ -124,7 +138,7 @@ class PostQueue:
         data = dict(row)
         data.setdefault("normalized_text", None)
         data.setdefault("hook", None)
-        for key in ("content_angle", "content_format", "rubric", "goal", "niche", "cta_type", "hook_type", "pain_angle", "target_audience", "structure_type", "viral_score", "uniqueness_score", "quality_score", "hash", "semantic_key"):
+        for key in ("content_angle", "content_format", "rubric", "goal", "niche", "cta_type", "hook_type", "pain_angle", "target_audience", "structure_type", "viral_score", "uniqueness_score", "quality_score", "hash", "semantic_key", "generation_source", "fallback_used", "llm_model", "creative_brief_id"):
             data.setdefault(key, None)
         return QueuedPost(**data)
 
@@ -142,11 +156,11 @@ class PostQueue:
         from app.content_quality import build_metadata
         normalized_text, hook = self._text_fingerprints(text)
         quality_meta = build_metadata(text, **metadata)
-        post = QueuedPost(str(next_id), text.strip(), "draft", self._now(), scheduled_hour=scheduled_hour, source=source, normalized_text=normalized_text, hook=quality_meta.hook or hook, content_angle=quality_meta.content_angle, content_format=quality_meta.content_format, rubric=metadata.get("rubric"), goal=metadata.get("goal"), niche=quality_meta.niche, cta_type=quality_meta.cta_type, hook_type=quality_meta.hook_type, pain_angle=quality_meta.pain_angle, target_audience=quality_meta.target_audience, structure_type=quality_meta.structure_type, viral_score=quality_meta.viral_score, uniqueness_score=quality_meta.uniqueness_score, quality_score=quality_meta.quality_score, hash=quality_meta.hash, semantic_key=quality_meta.semantic_key)
+        post = QueuedPost(str(next_id), text.strip(), "draft", self._now(), scheduled_hour=scheduled_hour, source=source, normalized_text=normalized_text, hook=quality_meta.hook or hook, content_angle=quality_meta.content_angle, content_format=quality_meta.content_format, rubric=metadata.get("rubric"), goal=metadata.get("goal"), niche=quality_meta.niche, cta_type=quality_meta.cta_type, hook_type=quality_meta.hook_type, pain_angle=quality_meta.pain_angle, target_audience=quality_meta.target_audience, structure_type=quality_meta.structure_type, viral_score=quality_meta.viral_score, uniqueness_score=quality_meta.uniqueness_score, quality_score=quality_meta.quality_score, hash=quality_meta.hash, semantic_key=quality_meta.semantic_key, generation_source=metadata.get("generation_source") or ("fallback_template" if metadata.get("fallback_used") else "ollama" if source.startswith(("ollama", "growth")) else source), fallback_used=1 if metadata.get("fallback_used") else 0, llm_model=metadata.get("llm_model"), creative_brief_id=metadata.get("creative_brief_id"))
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO threads_posts (id, text, status, created_at, scheduled_hour, source, normalized_text, hook, content_angle, content_format, rubric, goal, niche, cta_type, hook_type, pain_angle, target_audience, structure_type, viral_score, uniqueness_score, quality_score, hash, semantic_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (post.id, post.text, post.status, post.created_at, post.scheduled_hour, post.source, post.normalized_text, post.hook, post.content_angle, post.content_format, post.rubric, post.goal, post.niche, post.cta_type, post.hook_type, post.pain_angle, post.target_audience, post.structure_type, post.viral_score, post.uniqueness_score, post.quality_score, post.hash, post.semantic_key),
+                "INSERT INTO threads_posts (id, text, status, created_at, scheduled_hour, source, normalized_text, hook, content_angle, content_format, rubric, goal, niche, cta_type, hook_type, pain_angle, target_audience, structure_type, viral_score, uniqueness_score, quality_score, hash, semantic_key, generation_source, fallback_used, llm_model, creative_brief_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (post.id, post.text, post.status, post.created_at, post.scheduled_hour, post.source, post.normalized_text, post.hook, post.content_angle, post.content_format, post.rubric, post.goal, post.niche, post.cta_type, post.hook_type, post.pain_angle, post.target_audience, post.structure_type, post.viral_score, post.uniqueness_score, post.quality_score, post.hash, post.semantic_key, post.generation_source, post.fallback_used, post.llm_model, post.creative_brief_id),
             )
         return post
 
@@ -167,7 +181,7 @@ class PostQueue:
     def list_publishable(self):
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM threads_posts WHERE status IN ('approved', 'draft') ORDER BY created_at ASC"
+                "SELECT * FROM threads_posts WHERE status IN ('draft', 'approved', 'scheduled', 'ready') ORDER BY created_at ASC"
             ).fetchall()
         return [self._row_to_post(row) for row in rows]
 
@@ -181,8 +195,8 @@ class PostQueue:
         return [self._row_to_post(row) for row in rows]
 
     def list_duplicate_guard_posts(self):
-        published = self.list_published_since(7)
-        active = [p for p in self.list_by_status("draft") + self.list_by_status("approved")]
+        published = self.list_published_since(14)
+        active = self.list_publishable()
         return active + published
 
     def find_duplicate_for_publish(self, id, text: str):
@@ -201,7 +215,7 @@ class PostQueue:
             rows = conn.execute(
                 """
                 SELECT * FROM threads_posts
-                WHERE status IN ('draft', 'approved')
+                WHERE status IN ('draft', 'approved', 'scheduled', 'ready')
                    OR (status = 'published' AND published_at BETWEEN ? AND ?)
                 ORDER BY created_at ASC
                 """,
@@ -229,6 +243,16 @@ class PostQueue:
     def skip_post(self, id): return self._set_status(id, "skipped")
     def mark_published(self, id): return self._set_status(id, "published", published=True)
     def mark_failed(self, id, reason): return self._set_status(id, "failed", reason=reason)
+    def reject_post(self, id, reason: str): return self._set_status(id, reason if reason in VALID_STATUSES else "rejected", reason=reason)
+
+    def update_quality_metadata(self, id, meta):
+        with self._connect() as conn:
+            conn.execute("""
+                UPDATE threads_posts SET updated_at = ?, hook = ?, content_angle = ?, content_format = ?, niche = ?, cta_type = ?,
+                    hook_type = ?, pain_angle = ?, target_audience = ?, structure_type = ?, viral_score = ?, uniqueness_score = ?,
+                    quality_score = ?, hash = ?, semantic_key = ? WHERE id = ?
+                """, (self._now(), meta.hook, meta.content_angle, meta.content_format, meta.niche, meta.cta_type, meta.hook_type, meta.pain_angle, meta.target_audience, meta.structure_type, meta.viral_score, meta.uniqueness_score, meta.quality_score, meta.hash, meta.semantic_key, str(id)))
+        return self.get_post(id)
 
     def record_duplicate_skip(self, text: str, *, source: str | None = None, post_id: str | None = None, reason: str | None = None):
         from app.content_quality import build_metadata
@@ -251,7 +275,7 @@ class PostQueue:
 
     def list_content_history(self, days: int = 14, include_skipped: bool = True):
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        statuses = "'draft','approved','published','failed','skipped'" if include_skipped else "'draft','approved','published'"
+        statuses = "'draft','approved','scheduled','ready','published','failed','skipped','rejected','duplicate','weak','rejected_low_uniqueness','rejected_angle_duplicate','rejected_old_duplicate','rejected_hook_duplicate'" if include_skipped else "'draft','approved','scheduled','ready','published'"
         with self._connect() as conn:
             rows = conn.execute(
                 f"""
@@ -278,11 +302,11 @@ class PostQueue:
 
     def get_next_draft(self):
         with self._connect() as conn:
-            return self._row_to_post(conn.execute("SELECT * FROM threads_posts WHERE status = 'draft' ORDER BY created_at ASC LIMIT 1").fetchone())
+            return self._row_to_post(conn.execute("SELECT * FROM threads_posts WHERE status IN ('draft', 'approved', 'scheduled', 'ready') ORDER BY created_at ASC LIMIT 1").fetchone())
 
     def get_next_publishable(self):
         with self._connect() as conn:
-            return self._row_to_post(conn.execute("SELECT * FROM threads_posts WHERE status IN ('approved', 'draft') ORDER BY status = 'draft', created_at ASC LIMIT 1").fetchone())
+            return self._row_to_post(conn.execute("SELECT * FROM threads_posts WHERE status IN ('draft', 'approved', 'scheduled', 'ready') ORDER BY status = 'draft', created_at ASC LIMIT 1").fetchone())
 
     def update_post(self, id, text: str):
         from app.content_quality import build_metadata
@@ -303,7 +327,7 @@ class PostQueue:
 
     def get_draft_count(self) -> int:
         with self._connect() as conn:
-            return int(conn.execute("SELECT COUNT(*) FROM threads_posts WHERE status = 'draft'").fetchone()[0])
+            return int(conn.execute("SELECT COUNT(*) FROM threads_posts WHERE status IN ('draft', 'approved', 'scheduled', 'ready')").fetchone()[0])
 
     def get_published_count_for_date(self, day: date) -> int:
         start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc).isoformat()

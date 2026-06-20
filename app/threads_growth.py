@@ -11,6 +11,7 @@ from app.post_queue import PostQueue, QueuedPost
 from app.content_quality import (
     VIRAL_POST_MIN_SCORE as MIN_VIRAL_SCORE,
     CONTENT_REGENERATION_ATTEMPTS,
+    CONTENT_UNIQUENESS_MIN_SCORE,
     build_metadata as build_quality_metadata,
     evaluate_post,
 )
@@ -234,7 +235,7 @@ def infer_cta_type(text: str) -> str:
 
 def infer_content_angle(text: str) -> str:
     n = normalize_thread_text(text)
-    checks = [("crm", "crm_not_filled"), ("follow up", "no_followup"), ("whatsapp", "whatsapp_chaos"), ("telegram", "telegram_without_crm"), ("ноч", "night_leads"), ("реклам", "ad_budget_lost"), ("замен", "ai_not_replace_manager"), ("админ", "admin_overloaded"), ("direct", "direct_chaos")]
+    checks = [("салон", "salon_booking"), ("клиник", "clinic_booking"), ("стомат", "dentist_booking"), ("миф", "ai_should_not_break_process"), ("замен", "ai_not_replace_manager"), ("реклам", "ad_budget_lost"), ("ноч", "night_leads"), ("whatsapp", "whatsapp_chaos"), ("telegram", "telegram_without_crm"), ("direct", "direct_chaos"), ("follow up", "no_followup"), ("crm", "crm_gap"), ("админ", "admin_overloaded")]
     return next((angle for token, angle in checks if token in n), "simple_ai_admin_offer")
 
 def angle_is_blocked(queue: PostQueue, angle: str, *, exclude_id: str | None = None) -> bool:
@@ -329,14 +330,19 @@ def add_strong_unique_post(
             last_reason = result.reason
             queue.record_duplicate_skip(candidate, source=source, reason=result.reason)
             continue
-        return queue.add_post(candidate, source=source, scheduled_hour=scheduled_hour, **meta)
+        accepted_meta = result.metadata.__dict__.copy()
+        accepted_meta.pop("text", None)
+        accepted_meta.update(meta)
+        accepted_meta["uniqueness_score"] = result.metadata.uniqueness_score
+        accepted_meta.update({"generation_source": "fallback_template" if source.startswith("fallback") else "ollama", "fallback_used": source.startswith("fallback")})
+        return queue.add_post(candidate, source=source, scheduled_hour=scheduled_hour, **accepted_meta)
     return None
 
 
 def refill_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-refill") -> list[QueuedPost]:
     added: list[QueuedPost] = []
     attempts = 0
-    while queue.get_draft_count() < minimum and attempts < len(VIRAL_THREADS_TEMPLATES) * 2:
+    while queue.get_draft_count() < minimum and attempts < len(VIRAL_THREADS_TEMPLATES) * 5:
         post = add_strong_unique_post(
             queue,
             viral_fallback(attempts),
@@ -349,22 +355,48 @@ def refill_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-re
     return added
 
 
+def ensure_active_post_quality(queue: PostQueue, post: QueuedPost) -> QueuedPost | None:
+    if post.uniqueness_score and post.uniqueness_score >= CONTENT_UNIQUENESS_MIN_SCORE:
+        return post
+    result = evaluate_post(queue, post.text, metadata_for_text(post.text), exclude_id=post.id)
+    queue.update_quality_metadata(post.id, result.metadata)
+    if not result.accepted or result.metadata.uniqueness_score < CONTENT_UNIQUENESS_MIN_SCORE:
+        reason = "rejected_low_uniqueness" if result.metadata.uniqueness_score < CONTENT_UNIQUENESS_MIN_SCORE else result.reason
+        queue.mark_duplicate_skipped(post.id, reason=reason)
+        return None
+    return queue.get_post(post.id)
+
+
 def rebuild_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-rebuild") -> dict[str, object]:
     generated_before = queue.get_draft_count()
+    removed_skipped = 0
     removed_duplicates = purge_duplicate_drafts(queue)
     removed_weak = 0
     removed_banal = 0
     removed_angle = 0
+    removed_old_duplicates = 0
+    removed_low_uniqueness = 0
     seen_angles: set[str] = set()
     for post in queue.list_publishable():
         angle = post.content_angle or infer_content_angle(post.text)
         quality_result = evaluate_post(queue, post.text, metadata_for_text(post.text), exclude_id=post.id)
-        if not quality_result.accepted and quality_result.reason in {"robotic_text", "weak_viral_score", "weak_quality_score"}:
+        queue.update_quality_metadata(post.id, quality_result.metadata)
+        if quality_result.metadata.uniqueness_score < CONTENT_UNIQUENESS_MIN_SCORE:
+            queue.mark_duplicate_skipped(post.id, reason="rejected_low_uniqueness")
+            removed_low_uniqueness += 1
+            removed_weak += 1
+            if quality_result.reason == "robotic_text":
+                removed_banal += 1
+        elif quality_result.reason in {"exact_duplicate", "semantic_duplicate", "semantic_duplicate_history", "hook_duplicate_history", "first_line_duplicate_history"}:
+            queue.mark_duplicate_skipped(post.id, reason=quality_result.reason)
+            removed_old_duplicates += 1
+            removed_duplicates += 1
+        elif not quality_result.accepted and quality_result.reason in {"robotic_text", "weak_viral_score", "weak_quality_score"}:
             queue.mark_duplicate_skipped(post.id, reason=quality_result.reason)
             removed_banal += 1
             removed_weak += 1
         elif not quality_result.accepted or build_quality_metadata(post.text).viral_score < MIN_VIRAL_SCORE or angle in seen_angles:
-            queue.mark_duplicate_skipped(post.id, reason="weak or repeated angle rebuild")
+            queue.mark_duplicate_skipped(post.id, reason="rejected_angle_duplicate" if angle in seen_angles else quality_result.reason)
             removed_angle += 1 if angle in seen_angles else 0
             removed_weak += 1
         else:
@@ -374,7 +406,7 @@ def rebuild_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-r
     quality = queue_smm_quality(queue)
     posts = queue.list_publishable()
     avg = lambda name: round(sum((getattr(p, name) or metadata_for_text(p.text)[name]) for p in posts) / len(posts), 1) if posts else 0
-    return {"generated": generated_before + len(added), "accepted": len(added), "rejected_duplicates": removed_duplicates + removed_angle, "rejected_weak": removed_weak, "removed_duplicates": removed_duplicates, "removed_weak": removed_weak, "added": len(added), "rubrics": quality["rubrics"], "angles": sorted({p.content_angle or infer_content_angle(p.text) for p in posts}), "unique_angles": len({p.content_angle or infer_content_angle(p.text) for p in posts}), "avg_viral_score": avg("viral_score"), "avg_quality_score": avg("quality_score"), "avg_uniqueness_score": avg("uniqueness_score"), "before": before, "removed_banal": removed_banal, "removed_angle": removed_angle, "robot_like_risk": quality["template_risk"]}
+    return {"generated": generated_before + len(added), "generated_attempts": generated_before + len(added), "accepted": len(added), "rejected_duplicates": removed_duplicates + removed_angle, "rejected_weak": removed_weak, "removed_skipped": removed_skipped, "removed_duplicate_angles": removed_angle, "removed_old_duplicates": removed_old_duplicates, "removed_low_uniqueness": removed_low_uniqueness, "removed_duplicates": removed_duplicates, "removed_weak": removed_weak, "added": len(added), "rubrics": quality["rubrics"], "angles": sorted({p.content_angle or infer_content_angle(p.text) for p in posts}), "unique_angles": len({p.content_angle or infer_content_angle(p.text) for p in posts}), "avg_viral_score": avg("viral_score"), "avg_quality_score": avg("quality_score"), "avg_uniqueness_score": avg("uniqueness_score"), "before": before, "removed_banal": removed_banal, "removed_angle": removed_angle, "robot_like_risk": quality["template_risk"], "queue_total": len(posts), "fallback_used": sum(1 for p in posts if p.fallback_used), "ollama_count": sum(1 for p in posts if (p.generation_source or p.source) == "ollama"), "source": "ollama-first"}
 
 
 def purge_duplicate_drafts(queue: PostQueue) -> int:
@@ -397,7 +429,9 @@ def best_publishable_post(queue: PostQueue) -> QueuedPost | None:
 
 
 def next_unique_publishable_post(queue: PostQueue) -> QueuedPost | None:
-    for post in queue.list_publishable():
+    for post in list(queue.list_publishable()):
+        if ensure_active_post_quality(queue, post) is None:
+            continue
         duplicate = queue.find_duplicate_for_publish(post.id, post.text)
         if duplicate:
             queue.mark_duplicate_skipped(post.id, reason=f"duplicate of published #{duplicate.id}")
