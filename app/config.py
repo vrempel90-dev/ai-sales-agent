@@ -104,6 +104,14 @@ class Settings:
     content_history_days: int = 14
     content_persistent_history_enabled: bool = True
     content_block_generic_ai_posts: bool = True
+    client_acquisition_mode_enabled: bool = True
+    client_acquisition_daily_offer_post_enabled: bool = True
+    client_acquisition_daily_offer_post_hour: int = 18
+    client_acquisition_main_keyword: str = "разбор"
+    client_acquisition_secondary_keywords: str = "бот,AI,админ,заявки,цена,сколько стоит"
+    client_acquisition_target_niches: str = "салон красоты,клиника,стоматология,косметолог,барбершоп,онлайн-школа,эксперт,локальные услуги"
+    client_acquisition_report_enabled: bool = True
+    client_acquisition_report_hour: int = 21
 
     autonomous_threads_agent_enabled: bool = False
     autonomous_threads_agent_auto_start: bool = False
@@ -225,6 +233,14 @@ def get_settings() -> Settings:
         content_history_days=_int_env("CONTENT_HISTORY_DAYS", 14),
         content_persistent_history_enabled=_bool_env("CONTENT_PERSISTENT_HISTORY_ENABLED", "true"),
         content_block_generic_ai_posts=_bool_env("CONTENT_BLOCK_GENERIC_AI_POSTS", "true"),
+        client_acquisition_mode_enabled=_bool_env("CLIENT_ACQUISITION_MODE_ENABLED", "true"),
+        client_acquisition_daily_offer_post_enabled=_bool_env("CLIENT_ACQUISITION_DAILY_OFFER_POST_ENABLED", "true"),
+        client_acquisition_daily_offer_post_hour=_int_env("CLIENT_ACQUISITION_DAILY_OFFER_POST_HOUR", 18),
+        client_acquisition_main_keyword=os.getenv("CLIENT_ACQUISITION_MAIN_KEYWORD", "разбор").strip(),
+        client_acquisition_secondary_keywords=os.getenv("CLIENT_ACQUISITION_SECONDARY_KEYWORDS", "бот,AI,админ,заявки,цена,сколько стоит").strip(),
+        client_acquisition_target_niches=os.getenv("CLIENT_ACQUISITION_TARGET_NICHES", "салон красоты,клиника,стоматология,косметолог,барбершоп,онлайн-школа,эксперт,локальные услуги").strip(),
+        client_acquisition_report_enabled=_bool_env("CLIENT_ACQUISITION_REPORT_ENABLED", "true"),
+        client_acquisition_report_hour=_int_env("CLIENT_ACQUISITION_REPORT_HOUR", 21),
         autonomous_threads_agent_enabled=_bool_env("AUTONOMOUS_THREADS_AGENT_ENABLED", "false"),
         autonomous_threads_agent_auto_start=_bool_env("AUTONOMOUS_THREADS_AGENT_AUTO_START", "false"),
         autonomous_threads_agent_dry_run=_bool_env("AUTONOMOUS_THREADS_AGENT_DRY_RUN", "true"),

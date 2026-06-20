@@ -19,6 +19,10 @@ from app.ollama_client import ask_ollama, build_ollama_options, test_ollama
 from app.post_queue import post_queue, QueuedPost
 from app.threads_client import ThreadsClient
 from app.content_quality import evaluate_post
+from app.client_acquisition import (
+    add_daily_acquisition_posts, acquisition_meta_for_text, build_audit_offer,
+    build_client_reply, build_offer_post, build_profile_offer, client_acquisition_report_block,
+)
 from app.threads_growth import (
     add_strong_unique_post,
     best_publishable_post,
@@ -132,7 +136,10 @@ async def content_menu(message: Message):
         "• /posts — очередь постов\n"
         "• /refill — пополнить очередь\n"
         "• /rebuild — пересобрать очередь\n"
-        "• /viral_post тема — пост на тему\n\n"
+        "• /viral_post тема — пост на тему\n"
+        "• /offer_post — пост на входящие заявки\n"
+        "• /audit_offer — оффер, био и закреп\n"
+        "• /profile_offer — оформить профиль\n\n"
         "Что дальше:\n1. Проверь /next_post\n2. Если очередь слабая — нажми /rebuild"
     )
 
@@ -217,11 +224,12 @@ def render_post(post: QueuedPost) -> str:
     viral = post.viral_score or meta["viral_score"]
     quality = post.quality_score or meta["quality_score"]
     uniq = post.uniqueness_score or meta["uniqueness_score"]
-    stage = "прогрев" if goal not in ("Offer", "продажа") else "оффер"
+    acq = acquisition_meta_for_text(post.text)
+    stage = acq.acquisition_stage if acq.content_goal in {"pain", "expert", "offer"} else ("прогрев" if goal not in ("Offer", "продажа") else "оффер")
     why = "есть боль/деньги/сценарий, мягкий CTA и отличие по angle, hook, структуре и CTA"
     return (
         f"Threads draft #{post.id}\nСтатус: {post.status}\n"
-        f"Goal: {goal}\nFormat: {rubric}\nAngle: {angle}\nStage: {stage}\n"
+        f"Goal: {goal}\ncontent_goal: {acq.content_goal}\nFormat: {rubric}\nAngle: {angle}\nStage: {stage}\nacquisition_stage: {acq.acquisition_stage}\nCTA keyword: {acq.cta_keyword}\n"
         f"hook type: {hook_type}\npain: {pain}\nCTA: {cta}\n"
         f"source: {post.generation_source or post.source or 'unknown'}\nfallback: {'yes' if post.fallback_used else 'no'}\n"
         f"viral_score: {viral}\nquality_score: {quality}\nuniqueness_score: {uniq}\n"
@@ -248,6 +256,17 @@ def queue_viral_post(text: str, *, source: str, index: int = 0, niche: str | Non
 
 @router.message(Command("threads_day"))
 async def threads_day(message: Message, settings: Settings):
+    if getattr(settings, "client_acquisition_mode_enabled", True):
+        queued = add_daily_acquisition_posts(
+            post_queue,
+            offer_hour=getattr(settings, "client_acquisition_daily_offer_post_hour", 18),
+            keyword=getattr(settings, "client_acquisition_main_keyword", "разбор"),
+        )
+        growth_runtime.posts_added += len(queued)
+        await message.answer(f"Client Acquisition day: добавил {len(queued)} постов (pain → trust → offer).")
+        if queued:
+            await show_post(message, queued[0])
+        return
     posts = viral_threads_day_posts()[:5] if settings.threads_viral_only else fallback_threads_day_posts()[:5]
     queued = []
     for index, post in enumerate(posts):
@@ -285,6 +304,34 @@ async def viral_threads_day(message: Message):
     await message.answer(f"Добавил в очередь: {len(queued)} viral draft-постов.")
     if queued:
         await show_post(message, queued[0])
+
+
+@router.message(Command("offer_post"))
+async def offer_post(message: Message, settings: Settings):
+    text = build_offer_post(getattr(settings, "client_acquisition_main_keyword", "разбор"))
+    post = add_strong_unique_post(
+        post_queue, text, source="client-acquisition-offer", scheduled_hour=getattr(settings, "client_acquisition_daily_offer_post_hour", 18)
+    )
+    if post:
+        await show_post(message, post)
+    else:
+        await message.answer(text)
+
+@router.message(Command("audit_offer"))
+async def audit_offer(message: Message, settings: Settings):
+    await message.answer(build_audit_offer(getattr(settings, "client_acquisition_main_keyword", "разбор")))
+
+@router.message(Command("profile_offer"))
+async def profile_offer(message: Message, settings: Settings):
+    await message.answer(build_profile_offer(getattr(settings, "client_acquisition_main_keyword", "разбор")))
+
+@router.message(Command("client_reply"))
+async def client_reply(message: Message):
+    text = arg_text(message)
+    if not text:
+        await message.answer("Добавьте сообщение клиента. Пример:\n/client_reply Сколько стоит бот?")
+        return
+    await message.answer(build_client_reply(text))
 
 @router.message(Command("viral_post"))
 async def viral_post(message: Message):
@@ -538,7 +585,8 @@ def build_growth_report(settings: Settings) -> str:
         f"{critical_uniqueness_line}"
         f"• repeated angles: {', '.join(q['repeated_angles']) if q['repeated_angles'] else 'none'}\n"
         f"• recommendation: {'/growth_rebuild' if q['template_risk'] != 'low' else 'keep angle/hook/CTA rotation'}\n\n"
-        "🧠 Рекомендация на завтра:\n"
+        + client_acquisition_report_block(settings, post_queue) + "\n\n"
+        + "🧠 Рекомендация на завтра:\n"
         f"{'Рекомендация: выполнить /growth_rebuild.' if q['template_risk'] == 'high' else 'держать микс форматов, angles и целей'}\n\n"
         "🔧 Технический блок:\n"
         f"Threads API errors: {growth_runtime.last_error or 'нет'}\n"
@@ -724,7 +772,7 @@ async def growth_plan(message: Message):
         "• не повторяем вчерашний CTA\n"
         "• не пишем про сайты/лендинги\n\n"
         "🔥 Главный оффер дня / CTA дня:\n"
-        "“Напишите «аудит» — покажу, где теряются заявки.”\n\n"
+        "“Напишите «разбор» — бесплатно найду 3 места, где теряются заявки.”\n\n"
         "Что дальше:\n1. Проверь /content\n2. Затем /leads\n3. Вечером открой /today"
     )
 
@@ -737,7 +785,7 @@ async def engagement_tasks(message: Message):
         "3. Ответить на 3 релевантные ветки.\n"
         "4. Проверить входящие и незавершённые диалоги.\n"
         "5. Убедиться, что очередь заполнена.\n"
-        "6. CTA дня: «аудит».\n\n"
+        "6. CTA дня: «разбор».\n\n"
         "Все действия выполняются вручную: без автолайков, автофолловинга и автокомментариев."
     )
 
@@ -761,6 +809,9 @@ async def threads_queue(message: Message):
         meta = metadata_for_text(p.text)
         lines.append(
             f"#{p.id} {p.status}\n"
+            f"content_goal: {acquisition_meta_for_text(p.text).content_goal}\n"
+            f"acquisition_stage: {acquisition_meta_for_text(p.text).acquisition_stage}\n"
+            f"CTA keyword: {acquisition_meta_for_text(p.text).cta_keyword}\n"
             f"format: {p.content_format or p.rubric or meta['content_format']}\n"
             f"angle: {p.content_angle or meta['content_angle']}\n"
             f"hook: {(p.hook or meta['hook'])[:90]}\n"

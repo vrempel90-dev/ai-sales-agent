@@ -5,6 +5,7 @@ from app.config import Settings
 from app.lead_agent import HOT_LEAD_THRESHOLD, PRICE_RANGES, build_lead_reply, hot_lead_notification
 from app.lead_store import LeadConversationService
 from app.lead_hunter import lead_hunter_reply_notification
+from app.client_acquisition import build_client_reply, has_inbound_signal
 
 router = Router()
 
@@ -21,6 +22,12 @@ START_TEXT = """🚀 AI Growth Marketer
 🤝 Готовлю первые сообщения
 🔥 Помогаю доводить горячих лидов до заявки
 📊 Вечером даю отчёт
+
+🎯 Получение клиентов:
+• /offer_post — пост на входящие заявки
+• /audit_offer — оффер, био и закреп
+• /profile_offer — оформить профиль
+• /client_reply текст — ответ потенциальному клиенту
 
 Главное меню:
 📊 /today — отчёт за сегодня
@@ -132,6 +139,14 @@ async def sales_preview(message: Message, settings: Settings):
     )
 
 
+@router.message(Command("client_reply"))
+async def client_reply_sales(message: Message):
+    parts = (message.text or "").split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await message.answer("Добавьте сообщение клиента. Пример:\n/client_reply Сколько стоит бот?")
+        return
+    await message.answer(build_client_reply(parts[1].strip()))
+
 @router.message(Command("sales"))
 async def sales_menu(message: Message):
     await message.answer(
@@ -139,6 +154,7 @@ async def sales_menu(message: Message):
         "Команды:\n"
         "• /sales_preview текст — проверить ответ клиенту\n"
         "• /dm_preview текст — DM-ответ\n"
+        "• /client_reply текст — ответ потенциальному клиенту\n"
         "• /sales_status — статус продаж\n"
         "• /whatsapp_status — WhatsApp handoff\n\n"
         "Что дальше:\n1. Вставь сообщение клиента в /sales_preview\n2. Если лид горячий — передай владельцу"
@@ -182,6 +198,9 @@ async def lead_message(
     lead_service: LeadConversationService,
 ):
     if not lead_service.enabled:
+        return
+    if getattr(settings, "client_acquisition_mode_enabled", True) and has_inbound_signal(message.text or ""):
+        await message.answer(build_client_reply(message.text or ""))
         return
     reply = build_lead_reply(
         message.text or "",
