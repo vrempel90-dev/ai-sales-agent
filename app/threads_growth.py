@@ -8,7 +8,12 @@ from datetime import datetime, timedelta, timezone
 from app.content_safety import validate_threads_post
 from app.post_queue import PostQueue, QueuedPost
 
-MIN_VIRAL_SCORE = 0
+from app.content_quality import (
+    VIRAL_POST_MIN_SCORE as MIN_VIRAL_SCORE,
+    CONTENT_REGENERATION_ATTEMPTS,
+    build_metadata as build_quality_metadata,
+    evaluate_post,
+)
 
 PAIN_WORDS = ("теря", "не дожд", "хаос", "медлен", "забы", "чёрная дыра", "устал",
               "не обработ", "не успева", "не занос", "пропада", "перегруж",
@@ -152,28 +157,20 @@ def validate_growth_post(text: str) -> tuple[bool, str]:
 
 
 def score_thread_post(text: str) -> int:
+    """0-100 viral score used by legacy tests and publishing priority."""
+    score = build_quality_metadata(text).viral_score
     normalized = normalize_thread_text(text)
-    if not normalized:
-        return -20
-    score = 0
-    score += 2 if any(word in normalized for word in PAIN_WORDS) else -2
-    score += 2 if any(word in normalized for word in CONSEQUENCE_WORDS) else -2
-    score += 2 if has_specific_ai_solution(text) else -5
-    score += 2 if any(word in normalized for word in ECONOMIC_WORDS) else -3
-    score += 1 if any(word in normalized for word in CHANNEL_WORDS) else -1
-    score += 4 if has_strong_cta(text) else -8
-    first_line = next((line.strip() for line in (text or "").splitlines() if line.strip()), "")
-    score += 1 if len(first_line) <= 100 and any(word in normalize_thread_text(first_line) for word in PAIN_WORDS + CONSEQUENCE_WORDS) else -1
-    score += 1 if 300 <= len((text or "").strip()) <= 700 else -2
-    score -= 5 * sum(phrase in normalized for phrase in WEAK_PHRASES)
-    score -= 10 * sum(phrase in normalized for phrase in IRRELEVANT)
-    score += 2 if is_senior_marketing_post(text) else -2
-    score += 4 if is_not_banal_smm_post(text) else -4
+    first_line_raw = next((line.strip() for line in (text or "").splitlines() if line.strip()), "")
+    first = normalize_thread_text(re.split(r"(?<=[.!?])\s+", first_line_raw, maxsplit=1)[0])
     if any(marker in (text or "").lower() for marker in WHATSAPP_MARKERS):
-        return -20
+        score -= 40
+    if not first.startswith("проверь") and not any(word in first for word in PAIN_WORDS + CONSEQUENCE_WORDS):
+        score -= 12
+    if not has_specific_ai_solution(text):
+        score -= 20
     if not validate_growth_post(text)[0]:
-        score -= 6
-    return score
+        score -= 12
+    return max(0, min(100, score))
 
 
 def posts_are_duplicates(left: str, right: str) -> bool:
@@ -220,11 +217,13 @@ def template_for_text(text: str) -> GrowthTemplate | None:
     normalized = normalize_thread_text(text)
     return next((t for t in GROWTH_TEMPLATES if normalize_thread_text(t.text) == normalized), None)
 
-def metadata_for_text(text: str) -> dict[str, str]:
+def metadata_for_text(text: str) -> dict[str, str | int]:
     tpl = template_for_text(text)
+    quality = build_quality_metadata(text)
+    base = {"content_angle": quality.content_angle, "content_format": quality.content_format, "rubric": quality.content_format, "goal": "прогрев", "niche": quality.niche, "cta_type": quality.cta_type, "hook": quality.hook, "hook_type": quality.hook_type, "pain_angle": quality.pain_angle, "target_audience": quality.target_audience, "structure_type": quality.structure_type, "viral_score": quality.viral_score, "quality_score": quality.quality_score, "uniqueness_score": quality.uniqueness_score, "hash": quality.hash, "semantic_key": quality.semantic_key}
     if tpl:
-        return {"content_angle": tpl.content_angle, "content_format": tpl.rubric, "rubric": tpl.rubric, "goal": tpl.goal, "niche": tpl.niche, "cta_type": tpl.cta_type}
-    return {"content_angle": infer_content_angle(text), "content_format": "Custom", "rubric": "Custom", "goal": "прогрев", "niche": "общий бизнес", "cta_type": infer_cta_type(text)}
+        base.update({"content_angle": tpl.content_angle, "rubric": tpl.rubric, "goal": tpl.goal, "niche": tpl.niche})
+    return base
 
 def infer_cta_type(text: str) -> str:
     n = normalize_thread_text(text)
@@ -239,10 +238,11 @@ def infer_content_angle(text: str) -> str:
     return next((angle for token, angle in checks if token in n), "simple_ai_admin_offer")
 
 def angle_is_blocked(queue: PostQueue, angle: str, *, exclude_id: str | None = None) -> bool:
+    from app.content_quality import CONTENT_MAX_SAME_ANGLE_IN_QUEUE, CONTENT_ANGLE_COOLDOWN_HOURS
     active = [p for p in queue.list_publishable() if str(p.id) != str(exclude_id)]
-    if sum((p.content_angle or infer_content_angle(p.text)) == angle for p in active) >= 2:
+    if sum((p.content_angle or infer_content_angle(p.text)) == angle for p in active) > CONTENT_MAX_SAME_ANGLE_IN_QUEUE:
         return True
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=CONTENT_ANGLE_COOLDOWN_HOURS)).isoformat()
     return any((p.content_angle or infer_content_angle(p.text)) == angle and (p.published_at or "") >= cutoff for p in queue.list_by_status("published"))
 
 def queue_smm_quality(queue: PostQueue) -> dict[str, object]:
@@ -285,7 +285,7 @@ def content_memory_blocks(queue: PostQueue, text: str, meta: dict[str, str]) -> 
 def viral_fallback(index: int = 0, niche: str | None = None) -> str:
     if niche:
         candidate = viral_niche_post(niche)
-        if score_thread_post(candidate) >= MIN_VIRAL_SCORE:
+        if build_quality_metadata(candidate).viral_score >= MIN_VIRAL_SCORE:
             return candidate
     templates = list(VIRAL_THREADS_TEMPLATES)
     return templates[index % len(templates)]
@@ -294,13 +294,14 @@ def viral_fallback(index: int = 0, niche: str | None = None) -> str:
 def ensure_strong_post(text: str, fallback_index: int = 0, niche: str | None = None) -> str:
     candidate = (text or "").strip()
     valid, _ = validate_growth_post(candidate)
-    if valid and score_thread_post(candidate) >= MIN_VIRAL_SCORE:
+    if valid and build_quality_metadata(candidate).viral_score >= MIN_VIRAL_SCORE:
         return candidate
-    fallback = viral_fallback(fallback_index, niche)
-    valid, reason = validate_growth_post(fallback)
-    if not valid or score_thread_post(fallback) < MIN_VIRAL_SCORE:
-        raise ValueError(f"Некорректный viral fallback: {reason}")
-    return fallback
+    for offset in range(len(VIRAL_THREADS_TEMPLATES)):
+        fallback = viral_fallback(fallback_index + offset, niche)
+        valid, reason = validate_growth_post(fallback)
+        if valid and build_quality_metadata(fallback).viral_score >= MIN_VIRAL_SCORE:
+            return fallback
+    raise ValueError(f"Некорректный viral fallback: {reason}")
 
 
 def add_strong_unique_post(
@@ -313,16 +314,22 @@ def add_strong_unique_post(
     scheduled_hour: int | None = None,
 ) -> QueuedPost | None:
     candidates = [ensure_strong_post(text, fallback_index, niche)]
+    # Up to 3 regeneration attempts with different template angles, then fallback rubric sweep.
+    candidates.extend(viral_fallback(fallback_index + i + 1) for i in range(CONTENT_REGENERATION_ATTEMPTS))
     candidates.extend(viral_fallback(i) for i in range(len(VIRAL_THREADS_TEMPLATES)))
+    seen_candidates: set[str] = set()
+    last_reason = "weak_quality_score"
     for candidate in candidates:
-        if validate_growth_post(candidate)[0] and not is_duplicate_post(queue, candidate):
-            meta = metadata_for_text(candidate)
-            if angle_is_blocked(queue, meta["content_angle"]):
-                continue
-            blocked, _ = content_memory_blocks(queue, candidate, meta)
-            if blocked:
-                continue
-            return queue.add_post(candidate, source=source, scheduled_hour=scheduled_hour, **meta)
+        if normalize_thread_text(candidate) in seen_candidates:
+            continue
+        seen_candidates.add(normalize_thread_text(candidate))
+        meta = metadata_for_text(candidate)
+        result = evaluate_post(queue, candidate, meta)
+        if not result.accepted:
+            last_reason = result.reason
+            queue.record_duplicate_skip(candidate, source=source, reason=result.reason)
+            continue
+        return queue.add_post(candidate, source=source, scheduled_hour=scheduled_hour, **meta)
     return None
 
 
@@ -343,6 +350,7 @@ def refill_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-re
 
 
 def rebuild_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-rebuild") -> dict[str, object]:
+    generated_before = queue.get_draft_count()
     removed_duplicates = purge_duplicate_drafts(queue)
     removed_weak = 0
     removed_banal = 0
@@ -350,11 +358,12 @@ def rebuild_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-r
     seen_angles: set[str] = set()
     for post in queue.list_publishable():
         angle = post.content_angle or infer_content_angle(post.text)
-        if not is_not_banal_smm_post(post.text):
-            queue.mark_duplicate_skipped(post.id, reason="banal smm post rebuild")
+        quality_result = evaluate_post(queue, post.text, metadata_for_text(post.text), exclude_id=post.id)
+        if not quality_result.accepted and quality_result.reason in {"robotic_text", "weak_viral_score", "weak_quality_score"}:
+            queue.mark_duplicate_skipped(post.id, reason=quality_result.reason)
             removed_banal += 1
             removed_weak += 1
-        elif score_thread_post(post.text) < MIN_VIRAL_SCORE or angle in seen_angles:
+        elif not quality_result.accepted or build_quality_metadata(post.text).viral_score < MIN_VIRAL_SCORE or angle in seen_angles:
             queue.mark_duplicate_skipped(post.id, reason="weak or repeated angle rebuild")
             removed_angle += 1 if angle in seen_angles else 0
             removed_weak += 1
@@ -363,7 +372,9 @@ def rebuild_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-r
     before = queue.get_draft_count()
     added = refill_growth_queue(queue, minimum, source=source)
     quality = queue_smm_quality(queue)
-    return {"removed_duplicates": removed_duplicates, "removed_weak": removed_weak, "added": len(added), "rubrics": quality["rubrics"], "angles": sorted({p.content_angle or infer_content_angle(p.text) for p in queue.list_publishable()}), "before": before, "removed_banal": removed_banal, "removed_angle": removed_angle, "robot_like_risk": quality["template_risk"]}
+    posts = queue.list_publishable()
+    avg = lambda name: round(sum((getattr(p, name) or metadata_for_text(p.text)[name]) for p in posts) / len(posts), 1) if posts else 0
+    return {"generated": generated_before + len(added), "accepted": len(added), "rejected_duplicates": removed_duplicates + removed_angle, "rejected_weak": removed_weak, "removed_duplicates": removed_duplicates, "removed_weak": removed_weak, "added": len(added), "rubrics": quality["rubrics"], "angles": sorted({p.content_angle or infer_content_angle(p.text) for p in posts}), "unique_angles": len({p.content_angle or infer_content_angle(p.text) for p in posts}), "avg_viral_score": avg("viral_score"), "avg_quality_score": avg("quality_score"), "avg_uniqueness_score": avg("uniqueness_score"), "before": before, "removed_banal": removed_banal, "removed_angle": removed_angle, "robot_like_risk": quality["template_risk"]}
 
 
 def purge_duplicate_drafts(queue: PostQueue) -> int:
@@ -390,7 +401,7 @@ def next_unique_publishable_post(queue: PostQueue) -> QueuedPost | None:
         duplicate = queue.find_duplicate_for_publish(post.id, post.text)
         if duplicate:
             queue.mark_duplicate_skipped(post.id, reason=f"duplicate of published #{duplicate.id}")
-    for post in sorted(queue.list_publishable(), key=lambda item: score_thread_post(item.text), reverse=True):
+    for post in sorted(queue.list_publishable(), key=lambda item: (item.viral_score or score_thread_post(item.text)), reverse=True):
         duplicate = queue.find_duplicate_for_publish(post.id, post.text)
         if duplicate is None:
             return post
