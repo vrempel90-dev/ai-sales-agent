@@ -298,3 +298,42 @@ def test_content_memory_blocks_first_sentence_format_cta_and_angle(tmp_path):
 
     assert blocked
     assert reason in {"first_sentence repeated inside 14 days", "content_angle repeated inside 48h"}
+
+
+def test_growth_rebuild_empty_queue_generates_target_seven_by_default(tmp_path):
+    from app.threads_growth import rebuild_growth_queue
+
+    queue = make_queue(tmp_path)
+    result = rebuild_growth_queue(queue, 0)
+
+    assert result["target_queue"] == 7
+    assert result["active_before_cleanup"] == 0
+    assert result["active_after_cleanup"] == 0
+    assert result["missing_to_generate"] == 7
+    assert result["generation_called"] == "yes"
+    assert result["generated_attempts"] > 0
+    assert result["accepted"] == 7
+    assert result["queue_total"] == 7
+    assert queue.list_publishable()
+
+
+def test_growth_rebuild_summary_reports_generation_error_when_not_called(tmp_path, monkeypatch):
+    import app.threads_growth as tg
+
+    queue = make_queue(tmp_path)
+    monkeypatch.setattr(tg, "CONTENT_GLOBAL_REBUILD_ATTEMPT_LIMIT", 0)
+
+    result = tg.rebuild_growth_queue(queue, 7)
+
+    assert result["generated_attempts"] == 0
+    assert result["generation_called"] == "no"
+    assert result["last_generation_error"].startswith("generation_not_called")
+
+
+def test_growth_refill_fills_empty_queue_with_default_target_when_zero(tmp_path):
+    queue = make_queue(tmp_path)
+
+    added = refill_growth_queue(queue, 0)
+
+    assert len(added) == 7
+    assert len(queue.list_publishable()) == 7

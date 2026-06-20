@@ -679,6 +679,12 @@ async def growth_rebuild(message: Message, settings: Settings):
     growth_runtime.last_action = f"очередь пересобрана, добавлено {result['added']}"
     await message.answer(
         "Rebuild complete:\n"
+        f"target queue: {result['target_queue']}\n"
+        f"active before cleanup: {result['active_before_cleanup']}\n"
+        f"active after cleanup: {result['active_after_cleanup']}\n"
+        f"missing to generate: {result['missing_to_generate']}\n"
+        f"generation attempts limit: {result['generation_attempts_limit']}\n"
+        f"generation called: {result['generation_called']}\n"
         f"removed skipped from queue: {result['removed_skipped']}\n"
         f"removed duplicate angles: {result['removed_duplicate_angles']}\n"
         f"removed old duplicates: {result['removed_old_duplicates']}\n"
@@ -693,6 +699,7 @@ async def growth_rebuild(message: Message, settings: Settings):
         f"Итоговые formats: {', '.join(result['rubrics'])}\n"
         f"source: {result['source']}\n"
         f"fallback used: {result['fallback_used']}\n"
+        f"last generation error: {result['last_generation_error']}\n"
         f"Итоговые angles: {', '.join(result['angles'])}"
     )
 
