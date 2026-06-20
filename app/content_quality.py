@@ -109,7 +109,7 @@ def infer_structure_type(text: str) -> str:
 
 def infer_angle(text: str) -> str:
     n = normalize_text(text)
-    checks = [("direct", "direct_chaos"), ("whatsapp", "whatsapp_chaos"), ("follow up", "no_followup"), ("crm", "crm_not_filled"), ("ноч", "night_leads_lost"), ("реклам", "ads_budget_lost"), ("цена", "client_asked_price_and_left"), ("салон", "salon_booking"), ("клиник", "clinic_booking"), ("стомат", "dentist_booking"), ("замен", "ai_not_replace_admin"), ("аудит", "audit_offer"), ("админ", "admin_overloaded")]
+    checks = [("салон", "salon_booking"), ("клиник", "clinic_booking"), ("стомат", "dentist_booking"), ("миф", "ai_should_not_break_process"), ("замен", "ai_not_replace_admin"), ("реклам", "ads_budget_lost"), ("цена", "client_asked_price_and_left"), ("ноч", "night_leads_lost"), ("whatsapp", "whatsapp_chaos"), ("telegram", "telegram_without_crm"), ("direct", "direct_chaos"), ("follow up", "no_followup"), ("crm", "crm_gap"), ("аудит", "audit_offer"), ("админ", "admin_overloaded")]
     return next((a for k, a in checks if k in n), "manual_booking")
 
 def infer_content_format(text: str) -> str:
@@ -155,7 +155,7 @@ def score_quality(text: str) -> int:
 
 def build_metadata(text: str, **overrides) -> PostMetadata:
     n = normalize_text(text); h = hook(text)
-    meta = PostMetadata(text=text.strip(), hook=h, hook_type=infer_hook_type(text), content_format=infer_content_format(text), content_angle=infer_angle(text), pain_angle=semantic_key(text).split(" ")[0] if semantic_key(text) else "general", niche=("салон" if "салон" in n else "клиника" if "клиник" in n else "общий бизнес"), cta_type=infer_cta_type(text), structure_type=infer_structure_type(text), viral_score=score_viral(text), quality_score=score_quality(text), semantic_key=semantic_key(text), hash=hashlib.sha256(n.encode()).hexdigest())
+    meta = PostMetadata(text=text.strip(), hook=h, hook_type=infer_hook_type(text), content_format=infer_content_format(text), content_angle=infer_angle(text), pain_angle=semantic_key(text).split(" ")[0] if semantic_key(text) else "general", niche=("салон" if "салон" in n else "клиника" if "клиник" in n else "общий бизнес"), cta_type=infer_cta_type(text), structure_type=infer_structure_type(text), viral_score=score_viral(text), quality_score=score_quality(text), uniqueness_score=100, semantic_key=semantic_key(text), hash=hashlib.sha256(n.encode()).hexdigest())
     for k, v in overrides.items():
         if hasattr(meta, k) and v is not None: setattr(meta, k, v)
     return meta
@@ -169,20 +169,41 @@ def semantic_duplicate(a: str, b: str) -> bool:
     return ma.content_angle == mb.content_angle and len(key_overlap) >= 2
 
 def evaluate_post(queue, text: str, metadata: dict | None = None, *, exclude_id: str | None = None) -> QualityResult:
-    meta = build_metadata(text, **(metadata or {})); refs = queue.list_content_history(days=CONTENT_HISTORY_DAYS, include_skipped=False) if hasattr(queue, "list_content_history") else queue.list_duplicate_guard_posts()
+    meta = build_metadata(text, **(metadata or {}))
+    refs = queue.list_content_history(days=CONTENT_HISTORY_DAYS, include_skipped=True) if hasattr(queue, "list_content_history") else queue.list_duplicate_guard_posts()
     refs = [p for p in refs if str(getattr(p, "id", getattr(p, "post_id", ""))) != str(exclude_id)]
+    duplicate_events = []
+    if hasattr(queue, "_connect"):
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=CONTENT_HISTORY_DAYS)).isoformat()
+        with queue._connect() as conn:
+            duplicate_events = conn.execute("SELECT text, hook, semantic_key, hash FROM threads_duplicate_events WHERE skipped_at >= ?", (cutoff,)).fetchall()
+    first_line = normalize_text(hook(text))
     for p in refs:
         pt = p.text
+        p_first_line = normalize_text(hook(pt))
+        if getattr(p, "hash", None) and p.hash == meta.hash:
+            meta.uniqueness_score = 20; return QualityResult(False, "exact_duplicate", meta, ["hash_history"])
+        if getattr(p, "semantic_key", None) and p.semantic_key == meta.semantic_key and meta.semantic_key:
+            meta.uniqueness_score = 45; return QualityResult(False, "semantic_duplicate_history", meta, ["semantic_history"])
         if normalize_text(pt) == normalize_text(text) or similarity(pt, text) >= 0.88 or first_words(pt) == first_words(text):
             meta.uniqueness_score = 20; return QualityResult(False, "exact_duplicate", meta, ["exact"])
+        if p_first_line and first_line and (p_first_line == first_line or SequenceMatcher(None, p_first_line, first_line).ratio() >= 0.86):
+            meta.uniqueness_score = 35; return QualityResult(False, "first_line_duplicate_history", meta, ["first_line_history"])
         # Repeated final phrases are weak, but shared short CTA templates are allowed
         # when angle/hook/structure are different; consecutive CTA checks below catch runs.
         if final_phrase(pt) and final_phrase(pt) == final_phrase(text) and len(final_phrase(text).split()) > 16:
             meta.uniqueness_score = 60; return QualityResult(False, "same_cta", meta, ["final_phrase"])
         if semantic_duplicate(pt, text):
             meta.uniqueness_score = 55; return QualityResult(False, "semantic_duplicate", meta, ["semantic"])
+    for ev in duplicate_events:
+        if ev["hash"] and ev["hash"] == meta.hash:
+            meta.uniqueness_score = 20; return QualityResult(False, "exact_duplicate", meta, ["duplicate_event_hash"])
+        if ev["semantic_key"] and ev["semantic_key"] == meta.semantic_key:
+            meta.uniqueness_score = 45; return QualityResult(False, "semantic_duplicate_history", meta, ["duplicate_event_semantic"])
+        if ev["hook"] and first_line and SequenceMatcher(None, normalize_text(ev["hook"]), first_line).ratio() >= 0.86:
+            meta.uniqueness_score = 35; return QualityResult(False, "hook_duplicate_history", meta, ["duplicate_event_hook"])
     active = queue.list_publishable()
-    if sum((getattr(p, "content_angle", None) or infer_angle(p.text)) == meta.content_angle for p in active if str(p.id) != str(exclude_id)) > CONTENT_MAX_SAME_ANGLE_IN_QUEUE:
+    if sum((getattr(p, "content_angle", None) or infer_angle(p.text)) == meta.content_angle for p in active if str(p.id) != str(exclude_id)) >= CONTENT_MAX_SAME_ANGLE_IN_QUEUE:
         meta.uniqueness_score = 60; return QualityResult(False, "angle_duplicate", meta, ["queue_angle"])
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=CONTENT_ANGLE_COOLDOWN_HOURS)).isoformat()
     if any((getattr(p, "content_angle", None) or infer_angle(p.text)) == meta.content_angle and (p.published_at or "") >= cutoff for p in queue.list_by_status("published")):

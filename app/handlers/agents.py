@@ -23,6 +23,7 @@ from app.threads_growth import (
     add_strong_unique_post,
     best_publishable_post,
     next_unique_publishable_post,
+    ensure_active_post_quality,
     purge_duplicate_drafts,
     has_strong_cta,
     is_senior_marketing_post,
@@ -222,6 +223,7 @@ def render_post(post: QueuedPost) -> str:
         f"Threads draft #{post.id}\nСтатус: {post.status}\n"
         f"Goal: {goal}\nFormat: {rubric}\nAngle: {angle}\nStage: {stage}\n"
         f"hook type: {hook_type}\npain: {pain}\nCTA: {cta}\n"
+        f"source: {post.generation_source or post.source or 'unknown'}\nfallback: {'yes' if post.fallback_used else 'no'}\n"
         f"viral_score: {viral}\nquality_score: {quality}\nuniqueness_score: {uniq}\n"
         f"Why this post matters: {why}.\nWhy this post can work: {why}.\n\n{post.text}\n\nПубликация только после подтверждения."
     )
@@ -481,6 +483,14 @@ def build_growth_report(settings: Settings) -> str:
     posts_lead_to_dm = bool(published) and all(has_strong_cta(p.text) for p in published)
     weak_positioning_risk = bool(published) and not all(is_senior_marketing_post(p.text) for p in published)
     q = queue_smm_quality(post_queue)
+    active_drafts = post_queue.list_publishable()
+    invalid_uniqueness = [p for p in active_drafts if not p.uniqueness_score]
+    fallback_count = sum(1 for p in active_drafts if p.fallback_used)
+    ollama_count = sum(1 for p in active_drafts if (p.generation_source or p.source) == "ollama")
+    avg_viral = round(sum((p.viral_score or metadata_for_text(p.text)['viral_score']) for p in active_drafts) / max(1, len(active_drafts)), 1)
+    avg_quality = round(sum((p.quality_score or metadata_for_text(p.text)['quality_score']) for p in active_drafts) / max(1, len(active_drafts)), 1)
+    avg_uniqueness = round(sum((p.uniqueness_score or metadata_for_text(p.text)['uniqueness_score']) for p in active_drafts) / max(1, len(active_drafts)), 1)
+    critical_uniqueness_line = f"• critical: active drafts have invalid uniqueness score ({len(invalid_uniqueness)})\n" if invalid_uniqueness else ""
     return (
         "📊 AI Growth Marketer — отчёт за день\n\n"
         "🧭 Главный блок:\n"
@@ -519,16 +529,20 @@ def build_growth_report(settings: Settings) -> str:
         f"• unique angles: {q['unique_angles']}\n"
         f"• duplicate skipped today: {post_queue.get_duplicate_skipped_count_for_date(today)}\n"
         f"• weak posts rejected today: {post_queue.get_duplicate_skipped_count_for_date(today)}\n"
-        f"• avg viral score: {round(sum((p.viral_score or metadata_for_text(p.text)['viral_score']) for p in post_queue.list_publishable()) / max(1, len(post_queue.list_publishable())), 1)}\n"
-        f"• avg quality score: {round(sum((p.quality_score or metadata_for_text(p.text)['quality_score']) for p in post_queue.list_publishable()) / max(1, len(post_queue.list_publishable())), 1)}\n"
-        f"• avg uniqueness score: {round(sum((p.uniqueness_score or metadata_for_text(p.text)['uniqueness_score']) for p in post_queue.list_publishable()) / max(1, len(post_queue.list_publishable())), 1)}\n"
+        f"• avg viral score: {avg_viral}\n"
+        f"• avg quality score: {avg_quality}\n"
+        f"• avg uniqueness score: {avg_uniqueness}\n"
+        f"• ollama count: {ollama_count}\n"
+        f"• fallback count: {fallback_count}\n"
+        f"• roboticity risk reason: {q['template_risk']} / repeated_angles={q['repeated_angles']} / banal_count={q['banal_count']}\n"
+        f"{critical_uniqueness_line}"
         f"• repeated angles: {', '.join(q['repeated_angles']) if q['repeated_angles'] else 'none'}\n"
         f"• recommendation: {'/growth_rebuild' if q['template_risk'] != 'low' else 'keep angle/hook/CTA rotation'}\n\n"
         "🧠 Рекомендация на завтра:\n"
         f"{'Рекомендация: выполнить /growth_rebuild.' if q['template_risk'] == 'high' else 'держать микс форматов, angles и целей'}\n\n"
         "🔧 Технический блок:\n"
         f"Threads API errors: {growth_runtime.last_error or 'нет'}\n"
-        f"Ollama: модель {settings.ollama_model}, fallback-first активен\n"
+        f"Ollama: модель {settings.ollama_model}, ollama-first активен; fallback only on Ollama error\n"
         f"Last autopilot action: {growth_runtime.last_action}\n"
         f"Last autopilot error: {growth_runtime.last_error or 'нет'}\n\n"
         "Marketing quality:\n"
@@ -665,15 +679,20 @@ async def growth_rebuild(message: Message, settings: Settings):
     growth_runtime.last_action = f"очередь пересобрана, добавлено {result['added']}"
     await message.answer(
         "Rebuild complete:\n"
-        f"generated: {result['generated']}\n"
-        f"accepted: {result['accepted']}\n"
-        f"rejected duplicates: {result['rejected_duplicates']}\n"
-        f"rejected weak: {result['rejected_weak']}\n"
-        f"unique angles: {result['unique_angles']}\n"
+        f"removed skipped from queue: {result['removed_skipped']}\n"
+        f"removed duplicate angles: {result['removed_duplicate_angles']}\n"
+        f"removed old duplicates: {result['removed_old_duplicates']}\n"
+        f"removed low uniqueness: {result['removed_low_uniqueness']}\n"
+        f"generated attempts: {result['generated_attempts']}\n"
+        f"accepted new: {result['accepted']}\n"
+        f"queue total: {result['queue_total']}\n"
+        f"active unique angles: {result['unique_angles']}\n"
         f"avg viral score: {result['avg_viral_score']}\n"
         f"avg quality score: {result['avg_quality_score']}\n"
         f"avg uniqueness score: {result['avg_uniqueness_score']}\n"
         f"Итоговые formats: {', '.join(result['rubrics'])}\n"
+        f"source: {result['source']}\n"
+        f"fallback used: {result['fallback_used']}\n"
         f"Итоговые angles: {', '.join(result['angles'])}"
     )
 
@@ -722,25 +741,32 @@ async def positioning(message: Message):
 @router.message(Command("threads_queue", "posts"))
 async def threads_queue(message: Message):
     purge_duplicate_drafts(post_queue)
-    posts = post_queue.list_posts()
-    if not posts: await message.answer("Очередь Threads пустая."); return
+    cleaned = 0
+    for draft in list(post_queue.list_publishable()):
+        if ensure_active_post_quality(post_queue, draft) is None:
+            cleaned += 1
+    posts = post_queue.list_publishable()
+    if not posts:
+        await message.answer("Очередь Threads пустая. Выполните /growth_rebuild.")
+        return
     lines = []
     for p in posts:
-        if p.status == "skipped" and p.error_reason == "duplicate":
-            continue
         meta = metadata_for_text(p.text)
         lines.append(
             f"#{p.id} {p.status}\n"
             f"format: {p.content_format or p.rubric or meta['content_format']}\n"
             f"angle: {p.content_angle or meta['content_angle']}\n"
             f"hook: {(p.hook or meta['hook'])[:90]}\n"
+            f"source: {p.generation_source or p.source or 'unknown'}\n"
+            f"fallback: {'yes' if p.fallback_used else 'no'}\n"
             f"viral_score: {p.viral_score or meta['viral_score']}\n"
             f"quality_score: {p.quality_score or meta['quality_score']}\n"
             f"uniqueness_score: {p.uniqueness_score or meta['uniqueness_score']}\n"
             f"CTA: {p.cta_type or meta['cta_type']}\n"
             f"preview: {p.text[:120]}"
         )
-    await message.answer("\n\n".join(lines))
+    warning = "⚠️ Queue cleanup needed. Run /growth_rebuild.\n\n" if cleaned else ""
+    await message.answer(warning + "\n\n".join(lines))
 
 @router.message(Command("health"))
 async def health(message: Message, settings: Settings):
@@ -859,8 +885,10 @@ async def threads_rewrite(message: Message, settings: Settings):
 
 @router.message(Command("threads_next", "next_post"))
 async def threads_next(message: Message):
-    post = post_queue.get_next_draft()
-    if not post: await message.answer("Draft-постов нет."); return
+    post = next_unique_publishable_post(post_queue)
+    if not post:
+        await message.answer("Нет нормальных draft/ready постов. Выполните /growth_rebuild.")
+        return
     await show_post(message, post)
 
 @router.callback_query(F.data.startswith("threads:"))

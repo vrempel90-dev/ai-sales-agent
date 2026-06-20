@@ -53,3 +53,63 @@ def test_growth_rebuild_returns_quality_summary_with_unique_angles(tmp_path):
     assert result["unique_angles"] >= 1
     assert result["avg_viral_score"] >= 75
     assert result["avg_quality_score"] >= 80
+
+
+def test_draft_post_cannot_keep_zero_uniqueness_score(tmp_path):
+    from app.threads_growth import ensure_active_post_quality
+
+    queue = make_queue(tmp_path)
+    post = queue.add_post(VIRAL_THREADS_TEMPLATES[0], source="test")
+    with queue._connect() as conn:
+        conn.execute("UPDATE threads_posts SET uniqueness_score = 0 WHERE id = ?", (post.id,))
+
+    checked = ensure_active_post_quality(queue, queue.get_post(post.id))
+
+    assert checked is not None
+    assert checked.uniqueness_score >= 85
+
+
+def test_low_uniqueness_rejected_even_with_high_viral_quality(tmp_path):
+    queue = make_queue(tmp_path)
+    published = queue.add_post(VIRAL_THREADS_TEMPLATES[0], source="history")
+    queue.mark_published(published.id)
+
+    result = evaluate_post(queue, VIRAL_THREADS_TEMPLATES[0], {"viral_score": 100, "quality_score": 100})
+
+    assert not result.accepted
+    assert result.metadata.uniqueness_score < 85
+
+
+def test_hook_duplicate_from_duplicate_history_is_rejected(tmp_path):
+    queue = make_queue(tmp_path)
+    queue.record_duplicate_skip(VIRAL_THREADS_TEMPLATES[0], source="test", reason="skipped duplicate")
+
+    result = evaluate_post(queue, VIRAL_THREADS_TEMPLATES[0].replace("заявку", "лид"))
+
+    assert result.reason in {"exact_duplicate", "semantic_duplicate_history", "hook_duplicate_history", "first_line_duplicate_history"}
+
+
+def test_rebuild_removes_same_angle_and_keeps_active_unique(tmp_path):
+    queue = make_queue(tmp_path)
+    first = queue.add_post(VIRAL_THREADS_TEMPLATES[0], source="old")
+    dup_angle = queue.add_post(VIRAL_THREADS_TEMPLATES[0].replace("Ваш админ", "Администратор"), source="old")
+
+    result = rebuild_growth_queue(queue, 7)
+    active = queue.list_publishable()
+
+    assert queue.get_post(dup_angle.id).status in {"skipped", "rejected_angle_duplicate", "rejected_low_uniqueness"}
+    assert result["queue_total"] == 7
+    assert result["unique_angles"] == len(active)
+    assert result["avg_uniqueness_score"] > 0
+
+
+def test_skipped_posts_not_publishable_or_next(tmp_path):
+    from app.threads_growth import next_unique_publishable_post
+
+    queue = make_queue(tmp_path)
+    skipped = queue.add_post(VIRAL_THREADS_TEMPLATES[0], source="test")
+    queue.skip_post(skipped.id)
+    active = queue.add_post(VIRAL_THREADS_TEMPLATES[1], source="test")
+
+    assert skipped.id not in [p.id for p in queue.list_publishable()]
+    assert next_unique_publishable_post(queue).id == active.id
