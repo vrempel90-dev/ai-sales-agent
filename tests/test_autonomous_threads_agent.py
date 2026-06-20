@@ -31,7 +31,7 @@ def test_defaults_are_safe(tmp_path):
 def test_agent_status_works(tmp_path):
     s = make_settings(str(tmp_path/'db.sqlite'))
     _agent_cache.clear()
-    text = build_agent_status(s)
+    text = asyncio.run(build_agent_status(s))
     assert "Autonomous Threads Growth Agent" in text
     assert "dry run: True" in text
     assert "daily limits" in text

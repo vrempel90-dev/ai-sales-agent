@@ -8,14 +8,14 @@ from tests.test_threads_growth import make_settings
 
 def test_browser_mode_disabled_does_not_require_playwright(tmp_path):
     s = make_settings(str(tmp_path / "db.sqlite"), autonomous_threads_browser_mode=False)
-    status = ThreadsBrowserLayer(s).check_browser_ready()
+    status = asyncio.run(ThreadsBrowserLayer(s).check_browser_ready())
     assert status.browser_mode_enabled is False
     assert status.browser_ready is False
 
 
 def test_browser_status_no_session_is_clear(tmp_path):
     s = make_settings(str(tmp_path / "db.sqlite"), autonomous_threads_browser_mode=True, autonomous_threads_user_data_dir=str(tmp_path / "missing"))
-    status = ThreadsBrowserLayer(s).check_browser_ready()
+    status = asyncio.run(ThreadsBrowserLayer(s).check_browser_ready())
     assert status.session_configured is False
     assert status.browser_ready is False
 
@@ -67,12 +67,12 @@ def test_browser_unavailable_records_real_launch_error(monkeypatch, tmp_path):
 
     monkeypatch.setattr(layer, "playwright_installed", lambda: True)
 
-    def fail_launch():
+    async def fail_launch():
         layer.last_browser_error = layer._short_browser_error(Exception("Executable doesn't exist at /ms-playwright/chromium/chrome"))
         return False, "browser_unavailable"
 
     monkeypatch.setattr(layer, "load_session", fail_launch)
-    status = layer.check_browser_ready()
+    status = asyncio.run(layer.check_browser_ready())
 
     assert status.browser_ready is False
     assert "executable not found" in status.last_browser_error
@@ -92,7 +92,7 @@ def test_agent_browser_status_shows_last_browser_error(monkeypatch, tmp_path):
         autonomous_threads_cookies_json="[]",
     )
 
-    def fake_status(self):
+    async def fake_status(self):
         self.last_browser_error = "missing browser binaries: run python -m playwright install chromium"
         from app.threads_browser_layer import BrowserStatus
         return BrowserStatus(
@@ -128,7 +128,7 @@ def test_live_run_does_not_crash_when_browser_unavailable(monkeypatch, tmp_path)
         autonomous_threads_cookies_json="[]",
     )
 
-    def fake_status(self):
+    async def fake_status(self):
         from app.threads_browser_layer import BrowserStatus
         return BrowserStatus(
             playwright_installed=True,
@@ -161,3 +161,16 @@ def test_health_still_works_if_browser_unavailable(tmp_path):
     asyncio.run(health(msg, s))
 
     assert "✅ Бот работает" in msg.answers[0]
+
+
+def test_threads_browser_layer_uses_async_playwright_not_sync():
+    source = __import__("pathlib").Path("app/threads_browser_layer.py").read_text()
+    assert "playwright.async_api" in source
+    assert "from playwright.sync_api" not in source
+    assert "import playwright.sync_api" not in source
+
+
+def test_sync_api_loop_error_is_shortened(tmp_path):
+    layer = ThreadsBrowserLayer(make_settings(str(tmp_path / "db.sqlite")))
+    error = layer._short_browser_error(Exception("It looks like you are using Playwright Sync API inside the asyncio loop. Please use the Async API instead."))
+    assert error == "playwright_sync_api_in_async_loop"

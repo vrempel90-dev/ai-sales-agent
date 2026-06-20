@@ -17,16 +17,16 @@ def get_agent(settings: Settings) -> AutonomousThreadsAgent:
         _agent_cache[key] = agent
     return agent
 
-def _browser_status(settings: Settings):
+async def _browser_status(settings: Settings):
     layer = ThreadsBrowserLayer(settings)
     try:
-        return layer.check_browser_ready()
+        return await layer.check_browser_ready()
     finally:
-        layer.close_browser()
+        await layer.close_browser()
 
-def build_agent_status(settings: Settings) -> str:
+async def build_agent_status(settings: Settings) -> str:
     agent = get_agent(settings)
-    bs = _browser_status(settings)
+    bs = await _browser_status(settings)
     browser_note = "ready" if bs.browser_ready else (bs.last_browser_error or ("session not configured" if not bs.session_configured else "browser unavailable"))
     return (
         "🤖 Autonomous Threads Growth Agent — status\n\n"
@@ -50,7 +50,7 @@ def build_agent_status(settings: Settings) -> str:
 
 @router.message(Command("agent_status"))
 async def agent_status(message: Message, settings: Settings):
-    await message.answer(build_agent_status(settings))
+    await message.answer(await build_agent_status(settings))
 
 @router.message(Command("agent_on"))
 async def agent_on(message: Message, settings: Settings):
@@ -80,7 +80,7 @@ async def agent_dry_run_off(message: Message, settings: Settings):
 async def agent_run_once(message: Message, settings: Settings):
     if not await require_owner(message, settings): return
     agent = get_agent(settings)
-    result = agent.run_once()
+    result = await agent.run_once_async()
     await message.answer(
         "Один цикл выполнен.\n"
         f"score: {result.score}\n"
@@ -92,7 +92,7 @@ async def agent_run_once(message: Message, settings: Settings):
 
 @router.message(Command("agent_browser_status"))
 async def agent_browser_status(message: Message, settings: Settings):
-    bs = _browser_status(settings)
+    bs = await _browser_status(settings)
     await message.answer(
         "🌐 Threads Browser Layer — status\n"
         f"Playwright installed: {'yes' if bs.playwright_installed else 'no'}\n"
@@ -108,15 +108,15 @@ async def agent_browser_status(message: Message, settings: Settings):
 async def agent_browser_test(message: Message, settings: Settings):
     if not await require_owner(message, settings): return
     layer = ThreadsBrowserLayer(settings)
-    bs = layer.check_browser_ready()
+    bs = await layer.check_browser_ready()
     opened, reason = (False, "browser_unavailable" if bs.session_configured and bs.last_browser_error else "browser not ready")
     if not bs.browser_ready and bs.last_browser_error:
         bs.login_state = "browser_unavailable"
     if bs.browser_ready:
-        opened, reason = layer.open_threads_home()
+        opened, reason = await layer.open_threads_home()
         bs.can_open_threads_home = opened
         bs.login_state = "ok" if opened else reason
-    layer.close_browser()
+    await layer.close_browser()
     await message.answer(
         "🧪 Safe browser test: no comments, no DMs.\n"
         f"Playwright installed: {'yes' if bs.playwright_installed else 'no'}\n"
@@ -129,7 +129,7 @@ async def agent_browser_test(message: Message, settings: Settings):
 
 @router.message(Command("agent_report"))
 async def agent_report(message: Message, settings: Settings):
-    await message.answer(get_agent(settings).report())
+    await message.answer(await get_agent(settings).report_async())
 
 @router.message(Command("agent_plan"))
 async def agent_plan(message: Message, settings: Settings):
