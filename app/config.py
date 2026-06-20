@@ -91,6 +91,17 @@ class Settings:
     lead_hunter_block_if_no_official_channel: bool = True
     lead_hunter_report_hour: int = 21
     lead_hunter_timezone: str = "Asia/Almaty"
+    viral_post_min_score: int = 75
+    content_quality_min_score: int = 80
+    content_uniqueness_min_score: int = 85
+    content_max_same_angle_in_queue: int = 1
+    content_angle_cooldown_hours: int = 48
+    content_cta_cooldown_count: int = 2
+    content_structure_cooldown_count: int = 2
+    content_regeneration_attempts: int = 3
+    content_history_days: int = 14
+    content_persistent_history_enabled: bool = True
+    content_block_generic_ai_posts: bool = True
 
     autonomous_threads_agent_enabled: bool = False
     autonomous_threads_agent_auto_start: bool = False
@@ -194,6 +205,17 @@ def get_settings() -> Settings:
         lead_hunter_block_if_no_official_channel=_bool_env("LEAD_HUNTER_BLOCK_IF_NO_OFFICIAL_CHANNEL", "true"),
         lead_hunter_report_hour=_int_env("LEAD_HUNTER_REPORT_HOUR", 21),
         lead_hunter_timezone=os.getenv("LEAD_HUNTER_TIMEZONE", "Asia/Almaty").strip(),
+        viral_post_min_score=_int_env("VIRAL_POST_MIN_SCORE", 75),
+        content_quality_min_score=_int_env("CONTENT_QUALITY_MIN_SCORE", 80),
+        content_uniqueness_min_score=_int_env("CONTENT_UNIQUENESS_MIN_SCORE", 85),
+        content_max_same_angle_in_queue=_int_env("CONTENT_MAX_SAME_ANGLE_IN_QUEUE", 1),
+        content_angle_cooldown_hours=_int_env("CONTENT_ANGLE_COOLDOWN_HOURS", 48),
+        content_cta_cooldown_count=_int_env("CONTENT_CTA_COOLDOWN_COUNT", 2),
+        content_structure_cooldown_count=_int_env("CONTENT_STRUCTURE_COOLDOWN_COUNT", 2),
+        content_regeneration_attempts=_int_env("CONTENT_REGENERATION_ATTEMPTS", 3),
+        content_history_days=_int_env("CONTENT_HISTORY_DAYS", 14),
+        content_persistent_history_enabled=_bool_env("CONTENT_PERSISTENT_HISTORY_ENABLED", "true"),
+        content_block_generic_ai_posts=_bool_env("CONTENT_BLOCK_GENERIC_AI_POSTS", "true"),
         autonomous_threads_agent_enabled=_bool_env("AUTONOMOUS_THREADS_AGENT_ENABLED", "false"),
         autonomous_threads_agent_auto_start=_bool_env("AUTONOMOUS_THREADS_AGENT_AUTO_START", "false"),
         autonomous_threads_agent_dry_run=_bool_env("AUTONOMOUS_THREADS_AGENT_DRY_RUN", "true"),

@@ -18,6 +18,7 @@ from app.keyboards import threads_post_keyboard
 from app.ollama_client import ask_ollama, build_ollama_options, test_ollama
 from app.post_queue import post_queue, QueuedPost
 from app.threads_client import ThreadsClient
+from app.content_quality import evaluate_post
 from app.threads_growth import (
     add_strong_unique_post,
     best_publishable_post,
@@ -206,16 +207,23 @@ async def cmd_day(message: Message, settings: Settings):
 
 def render_post(post: QueuedPost) -> str:
     meta = metadata_for_text(post.text)
-    rubric = post.rubric or meta["rubric"]
+    rubric = post.content_format or post.rubric or meta["content_format"]
     angle = post.content_angle or meta["content_angle"]
     goal = post.goal or meta["goal"]
     cta = post.cta_type or meta["cta_type"]
+    hook_type = post.hook_type or meta["hook_type"]
+    pain = post.pain_angle or meta["pain_angle"]
+    viral = post.viral_score or meta["viral_score"]
+    quality = post.quality_score or meta["quality_score"]
+    uniq = post.uniqueness_score or meta["uniqueness_score"]
     stage = "прогрев" if goal not in ("Offer", "продажа") else "оффер"
-    why = "показывает живую экспертизу, даёт пользу до CTA и двигает аккаунт к подписчикам, доверию и заявкам"
+    why = "есть боль/деньги/сценарий, мягкий CTA и отличие по angle, hook, структуре и CTA"
     return (
         f"Threads draft #{post.id}\nСтатус: {post.status}\n"
-        f"Goal: {goal}\nFormat: {rubric}\nAngle: {angle}\nStage: {stage}\nCTA: {cta}\n"
-        f"Why this post matters: {why}.\n\n{post.text}\n\nПубликация только после подтверждения."
+        f"Goal: {goal}\nFormat: {rubric}\nAngle: {angle}\nStage: {stage}\n"
+        f"hook type: {hook_type}\npain: {pain}\nCTA: {cta}\n"
+        f"viral_score: {viral}\nquality_score: {quality}\nuniqueness_score: {uniq}\n"
+        f"Why this post matters: {why}.\nWhy this post can work: {why}.\n\n{post.text}\n\nПубликация только после подтверждения."
     )
 
 async def show_post(message_or_cb, post: QueuedPost):
@@ -506,6 +514,16 @@ def build_growth_report(settings: Settings) -> str:
         "• safety: no spam / no mass DM / manual-first\n"
         f"• limits: duplicate skipped today: {post_queue.get_duplicate_skipped_count_for_date(today)}\n"
         f"last duplicate skipped: {last_duplicate_text}\n\n"
+        "🧪 Content Quality:\n"
+        f"• drafts in queue: {post_queue.get_draft_count()}\n"
+        f"• unique angles: {q['unique_angles']}\n"
+        f"• duplicate skipped today: {post_queue.get_duplicate_skipped_count_for_date(today)}\n"
+        f"• weak posts rejected today: {post_queue.get_duplicate_skipped_count_for_date(today)}\n"
+        f"• avg viral score: {round(sum((p.viral_score or metadata_for_text(p.text)['viral_score']) for p in post_queue.list_publishable()) / max(1, len(post_queue.list_publishable())), 1)}\n"
+        f"• avg quality score: {round(sum((p.quality_score or metadata_for_text(p.text)['quality_score']) for p in post_queue.list_publishable()) / max(1, len(post_queue.list_publishable())), 1)}\n"
+        f"• avg uniqueness score: {round(sum((p.uniqueness_score or metadata_for_text(p.text)['uniqueness_score']) for p in post_queue.list_publishable()) / max(1, len(post_queue.list_publishable())), 1)}\n"
+        f"• repeated angles: {', '.join(q['repeated_angles']) if q['repeated_angles'] else 'none'}\n"
+        f"• recommendation: {'/growth_rebuild' if q['template_risk'] != 'low' else 'keep angle/hook/CTA rotation'}\n\n"
         "🧠 Рекомендация на завтра:\n"
         f"{'Рекомендация: выполнить /growth_rebuild.' if q['template_risk'] == 'high' else 'держать микс форматов, angles и целей'}\n\n"
         "🔧 Технический блок:\n"
@@ -646,12 +664,15 @@ async def growth_rebuild(message: Message, settings: Settings):
     growth_runtime.posts_added += int(result["added"])
     growth_runtime.last_action = f"очередь пересобрана, добавлено {result['added']}"
     await message.answer(
-        "Очередь пересобрана.\n"
-        f"Удалено шаблонных: {result['removed_banal']}\n"
-        f"Удалено повторов angle: {result['removed_angle']}\n"
-        f"Удалено дублей: {result['removed_duplicates']}\n"
-        f"Добавлено новых: {result['added']}\n"
-        f"Риск однотипности: {result['robot_like_risk']}\n"
+        "Rebuild complete:\n"
+        f"generated: {result['generated']}\n"
+        f"accepted: {result['accepted']}\n"
+        f"rejected duplicates: {result['rejected_duplicates']}\n"
+        f"rejected weak: {result['rejected_weak']}\n"
+        f"unique angles: {result['unique_angles']}\n"
+        f"avg viral score: {result['avg_viral_score']}\n"
+        f"avg quality score: {result['avg_quality_score']}\n"
+        f"avg uniqueness score: {result['avg_uniqueness_score']}\n"
         f"Итоговые formats: {', '.join(result['rubrics'])}\n"
         f"Итоговые angles: {', '.join(result['angles'])}"
     )
@@ -709,12 +730,15 @@ async def threads_queue(message: Message):
             continue
         meta = metadata_for_text(p.text)
         lines.append(
-            f"#{p.id} — {p.status}\n"
-            f"Rubric: {p.rubric or meta['rubric']}\n"
-            f"Angle: {p.content_angle or meta['content_angle']}\n"
-            f"Niche: {p.niche or meta['niche']}\n"
+            f"#{p.id} {p.status}\n"
+            f"format: {p.content_format or p.rubric or meta['content_format']}\n"
+            f"angle: {p.content_angle or meta['content_angle']}\n"
+            f"hook: {(p.hook or meta['hook'])[:90]}\n"
+            f"viral_score: {p.viral_score or meta['viral_score']}\n"
+            f"quality_score: {p.quality_score or meta['quality_score']}\n"
+            f"uniqueness_score: {p.uniqueness_score or meta['uniqueness_score']}\n"
             f"CTA: {p.cta_type or meta['cta_type']}\n"
-            f"Preview: {p.text[:90]}"
+            f"preview: {p.text[:120]}"
         )
     await message.answer("\n\n".join(lines))
 
@@ -790,9 +814,10 @@ async def publish_by_id(message: Message, settings: Settings, pid):
         await message.answer("Пост не опубликован: похожий пост уже был опубликован за последние 7 дней.")
         return
     meta = metadata_for_text(post.text)
-    if angle_is_blocked(post_queue, post.content_angle or meta["content_angle"], exclude_id=post.id):
-        post_queue.mark_duplicate_skipped(post.id, reason="angle repeated inside 48h or queue")
-        await message.answer("Пост не опубликован: этот content_angle уже был недавно или слишком часто в очереди.")
+    quality_result = evaluate_post(post_queue, post.text, meta, exclude_id=post.id)
+    if not quality_result.accepted:
+        post_queue.mark_duplicate_skipped(post.id, reason=quality_result.reason)
+        await message.answer(f"Пост не опубликован: quality check rejected ({quality_result.reason}).")
         return
     is_valid, reason = validate_threads_post(post.text)
     if not is_valid:
