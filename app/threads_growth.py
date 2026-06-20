@@ -9,6 +9,8 @@ from app.content_safety import validate_threads_post
 from app.post_queue import PostQueue, QueuedPost
 
 from app.content_quality import (
+    DEFAULT_CONTENT_QUEUE_TARGET,
+    CONTENT_GLOBAL_REBUILD_ATTEMPT_LIMIT,
     VIRAL_POST_MIN_SCORE as MIN_VIRAL_SCORE,
     CONTENT_REGENERATION_ATTEMPTS,
     CONTENT_UNIQUENESS_MIN_SCORE,
@@ -339,19 +341,43 @@ def add_strong_unique_post(
     return None
 
 
-def refill_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-refill") -> list[QueuedPost]:
+def normalize_queue_target(minimum: int | None) -> int:
+    try:
+        value = int(minimum or 0)
+    except (TypeError, ValueError):
+        value = 0
+    return value if value > 0 else DEFAULT_CONTENT_QUEUE_TARGET
+
+
+def _fill_growth_queue(queue: PostQueue, minimum: int | None, source: str = "growth-refill") -> tuple[list[QueuedPost], int, str]:
+    target = normalize_queue_target(minimum)
     added: list[QueuedPost] = []
     attempts = 0
-    while queue.get_draft_count() < minimum and attempts < len(VIRAL_THREADS_TEMPLATES) * 5:
-        post = add_strong_unique_post(
-            queue,
-            viral_fallback(attempts),
-            source=source,
-            fallback_index=attempts,
-        )
+    last_error = "none"
+    while len(queue.list_publishable()) < target and attempts < CONTENT_GLOBAL_REBUILD_ATTEMPT_LIMIT:
+        try:
+            post = add_strong_unique_post(
+                queue,
+                viral_fallback(attempts),
+                source=source,
+                fallback_index=attempts,
+            )
+        except Exception as exc:
+            post = None
+            last_error = f"generator_error: {exc}"
         if post:
             added.append(post)
+            last_error = "none"
+        elif last_error == "none":
+            last_error = "quality_rejected_or_duplicate"
         attempts += 1
+    if attempts == 0 and len(queue.list_publishable()) < target:
+        last_error = "generation_not_called: missing posts but attempts limit is 0"
+    return added, attempts, last_error
+
+
+def refill_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-refill") -> list[QueuedPost]:
+    added, _, _ = _fill_growth_queue(queue, minimum, source=source)
     return added
 
 
@@ -368,7 +394,8 @@ def ensure_active_post_quality(queue: PostQueue, post: QueuedPost) -> QueuedPost
 
 
 def rebuild_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-rebuild") -> dict[str, object]:
-    generated_before = queue.get_draft_count()
+    target_queue = normalize_queue_target(minimum)
+    active_before_cleanup = len(queue.list_publishable())
     removed_skipped = 0
     removed_duplicates = purge_duplicate_drafts(queue)
     removed_weak = 0
@@ -401,12 +428,14 @@ def rebuild_growth_queue(queue: PostQueue, minimum: int, source: str = "growth-r
             removed_weak += 1
         else:
             seen_angles.add(angle)
-    before = queue.get_draft_count()
-    added = refill_growth_queue(queue, minimum, source=source)
+    active_after_cleanup = len(queue.list_publishable())
+    missing_to_generate = max(0, target_queue - active_after_cleanup)
+    added, generated_attempts, last_generation_error = _fill_growth_queue(queue, target_queue, source=source)
+    generation_called = generated_attempts > 0
     quality = queue_smm_quality(queue)
     posts = queue.list_publishable()
     avg = lambda name: round(sum((getattr(p, name) or metadata_for_text(p.text)[name]) for p in posts) / len(posts), 1) if posts else 0
-    return {"generated": generated_before + len(added), "generated_attempts": generated_before + len(added), "accepted": len(added), "rejected_duplicates": removed_duplicates + removed_angle, "rejected_weak": removed_weak, "removed_skipped": removed_skipped, "removed_duplicate_angles": removed_angle, "removed_old_duplicates": removed_old_duplicates, "removed_low_uniqueness": removed_low_uniqueness, "removed_duplicates": removed_duplicates, "removed_weak": removed_weak, "added": len(added), "rubrics": quality["rubrics"], "angles": sorted({p.content_angle or infer_content_angle(p.text) for p in posts}), "unique_angles": len({p.content_angle or infer_content_angle(p.text) for p in posts}), "avg_viral_score": avg("viral_score"), "avg_quality_score": avg("quality_score"), "avg_uniqueness_score": avg("uniqueness_score"), "before": before, "removed_banal": removed_banal, "removed_angle": removed_angle, "robot_like_risk": quality["template_risk"], "queue_total": len(posts), "fallback_used": sum(1 for p in posts if p.fallback_used), "ollama_count": sum(1 for p in posts if (p.generation_source or p.source) == "ollama"), "source": "ollama-first"}
+    return {"target_queue": target_queue, "active_before_cleanup": active_before_cleanup, "active_after_cleanup": active_after_cleanup, "missing_to_generate": missing_to_generate, "generation_attempts_limit": CONTENT_GLOBAL_REBUILD_ATTEMPT_LIMIT, "generation_called": "yes" if generation_called else "no", "last_generation_error": last_generation_error, "generated": generated_attempts, "generated_attempts": generated_attempts, "accepted": len(added), "rejected_duplicates": removed_duplicates + removed_angle, "rejected_weak": removed_weak, "removed_skipped": removed_skipped, "removed_duplicate_angles": removed_angle, "removed_old_duplicates": removed_old_duplicates, "removed_low_uniqueness": removed_low_uniqueness, "removed_duplicates": removed_duplicates, "removed_weak": removed_weak, "added": len(added), "rubrics": quality["rubrics"], "angles": sorted({p.content_angle or infer_content_angle(p.text) for p in posts}), "unique_angles": len({p.content_angle or infer_content_angle(p.text) for p in posts}), "avg_viral_score": avg("viral_score"), "avg_quality_score": avg("quality_score"), "avg_uniqueness_score": avg("uniqueness_score"), "before": active_after_cleanup, "removed_banal": removed_banal, "removed_angle": removed_angle, "robot_like_risk": quality["template_risk"], "queue_total": len(posts), "fallback_used": sum(1 for p in posts if p.fallback_used), "ollama_count": sum(1 for p in posts if (p.generation_source or p.source) == "ollama"), "source": "ollama-first"}
 
 
 def purge_duplicate_drafts(queue: PostQueue) -> int:
