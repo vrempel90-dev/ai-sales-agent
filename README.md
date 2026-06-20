@@ -322,3 +322,30 @@ Limits и anti-spam:
 - первый touch без ссылок и без цены.
 
 Daily report в 21:00 Asia/Almaty включает контент, поиск, мусор, релевантные ветки, comments sent/prepared/skipped, DM sent/closed/skipped/manual unavailable, лиды, ошибки и рекомендацию на завтра.
+
+## Threads Browser Layer (controlled live comments)
+
+The Autonomous Threads Growth Agent now has an optional Playwright browser layer for Threads web. It is safe by default: `AUTONOMOUS_THREADS_BROWSER_MODE=false`, `AUTONOMOUS_THREADS_COMMENTS_ENABLED=false`, `AUTONOMOUS_THREADS_DMS_ENABLED=false`, and `AUTONOMOUS_THREADS_AGENT_DRY_RUN=true`.
+
+### Railway / browser setup
+
+1. Install Python dependencies from `requirements.txt`.
+2. Install Playwright browsers during deploy/startup if your Railway image does not already include Chromium:
+   ```bash
+   python -m playwright install chromium
+   ```
+3. Configure one session source; the bot never stores or asks for a Threads password:
+   - `AUTONOMOUS_THREADS_COOKIES_JSON` — exported cookies from an already-authorized web session.
+   - `AUTONOMOUS_THREADS_SESSION_FILE` — Playwright storage-state JSON path.
+   - `AUTONOMOUS_THREADS_USER_DATA_DIR=/tmp/threads-profile` — persistent profile directory, preferably backed by a Railway volume.
+4. First keep `AUTONOMOUS_THREADS_AGENT_DRY_RUN=true` and run `/agent_browser_test`.
+5. To allow one live comment per run, set `AUTONOMOUS_THREADS_AGENT_DRY_RUN=false`, `AUTONOMOUS_THREADS_BROWSER_MODE=true`, `AUTONOMOUS_THREADS_COMMENTS_ENABLED=true`, provide a valid session, and keep `AUTONOMOUS_THREADS_DMS_ENABLED=false`.
+
+New owner commands:
+
+- `/agent_browser_status` — dependency, session, readiness, login-state and stop-reason status.
+- `/agent_browser_test` — safe home-page/session test; it never comments and never sends DMs.
+
+Live comments are gated by dry-run off, browser mode on, comments enabled, configured session, Playwright readiness, score threshold, safety checks, duplicate history, daily limit, and absence of captcha/checkpoint/rate-limit/action-blocked/login issues. If no session is configured, the layer reports `session not configured` and dry-run still works. If Threads shows captcha, checkpoint, rate limit, action blocked, suspicious activity, session expiry, login issue, or selector/interface changes, the agent stops and records the reason; it does not try to bypass protections.
+
+Live DMs are intentionally not implemented. Even if `AUTONOMOUS_THREADS_DMS_ENABLED=true`, the agent reports: `Live DM is not implemented yet. DM remains disabled/manual.`

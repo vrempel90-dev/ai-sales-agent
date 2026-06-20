@@ -122,6 +122,12 @@ class Settings:
     autonomous_threads_comments_enabled: bool = False
     autonomous_threads_dms_enabled: bool = False
     autonomous_threads_browser_mode: bool = False
+    autonomous_threads_browser_headless: bool = True
+    autonomous_threads_session_file: str = ""
+    autonomous_threads_cookies_json: str = ""
+    autonomous_threads_user_data_dir: str = "/tmp/threads-profile"
+    autonomous_threads_search_keywords: str = "салон красоты,маникюр,косметолог,стоматология,клиника,запись в директ,заявки,админ,WhatsApp,CRM"
+    autonomous_threads_city: str = "Алматы"
     autonomous_threads_stop_on_captcha: bool = True
     autonomous_threads_stop_on_checkpoint: bool = True
     autonomous_threads_stop_on_rate_limit: bool = True
@@ -235,6 +241,12 @@ def get_settings() -> Settings:
         autonomous_threads_comments_enabled=_bool_env("AUTONOMOUS_THREADS_COMMENTS_ENABLED", "false"),
         autonomous_threads_dms_enabled=_bool_env("AUTONOMOUS_THREADS_DMS_ENABLED", "false"),
         autonomous_threads_browser_mode=_bool_env("AUTONOMOUS_THREADS_BROWSER_MODE", "false"),
+        autonomous_threads_browser_headless=_bool_env("AUTONOMOUS_THREADS_BROWSER_HEADLESS", "true"),
+        autonomous_threads_session_file=os.getenv("AUTONOMOUS_THREADS_SESSION_FILE", "").strip(),
+        autonomous_threads_cookies_json=os.getenv("AUTONOMOUS_THREADS_COOKIES_JSON", "").strip(),
+        autonomous_threads_user_data_dir=os.getenv("AUTONOMOUS_THREADS_USER_DATA_DIR", "/tmp/threads-profile").strip(),
+        autonomous_threads_search_keywords=os.getenv("AUTONOMOUS_THREADS_SEARCH_KEYWORDS", "салон красоты,маникюр,косметолог,стоматология,клиника,запись в директ,заявки,админ,WhatsApp,CRM").strip(),
+        autonomous_threads_city=os.getenv("AUTONOMOUS_THREADS_CITY", "Алматы").strip(),
         autonomous_threads_stop_on_captcha=_bool_env("AUTONOMOUS_THREADS_STOP_ON_CAPTCHA", "true"),
         autonomous_threads_stop_on_checkpoint=_bool_env("AUTONOMOUS_THREADS_STOP_ON_CHECKPOINT", "true"),
         autonomous_threads_stop_on_rate_limit=_bool_env("AUTONOMOUS_THREADS_STOP_ON_RATE_LIMIT", "true"),
