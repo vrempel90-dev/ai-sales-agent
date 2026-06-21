@@ -1,6 +1,7 @@
 """Small aiogram-compatible subset used by the app in lightweight deployments/tests."""
 import asyncio
 import logging
+from dataclasses import asdict, is_dataclass
 
 import httpx
 
@@ -32,18 +33,50 @@ class Router:
             return func
         return decorator
 
+def serialize_telegram_payload(value):
+    """Convert aiogram-like models to JSON-serializable Telegram payloads."""
+    if value is None:
+        return None
+    if hasattr(value, "model_dump"):
+        return value.model_dump(exclude_none=True)
+    if hasattr(value, "dict"):
+        return value.dict(exclude_none=True)
+    if is_dataclass(value):
+        return serialize_telegram_payload(asdict(value))
+    if isinstance(value, list):
+        return [serialize_telegram_payload(item) for item in value]
+    if isinstance(value, tuple):
+        return [serialize_telegram_payload(item) for item in value]
+    if isinstance(value, dict):
+        return {
+            key: serialize_telegram_payload(item)
+            for key, item in value.items()
+            if item is not None
+        }
+    return value
+
+
 class Bot:
     def __init__(self, token: str):
         self.token = token
         self.base_url = f"https://api.telegram.org/bot{token}"
         self._client = httpx.AsyncClient(timeout=35.0)
     async def send_message(self, chat_id, text: str, **kwargs):
-        return await self._request("sendMessage", {"chat_id": chat_id, "text": text, **kwargs})
+        payload = {"chat_id": chat_id, "text": text, **kwargs}
+        try:
+            return await self._request("sendMessage", payload)
+        except TypeError:
+            if "reply_markup" not in payload:
+                raise
+            logger.exception("Failed to serialize reply_markup; sending message without keyboard")
+            payload.pop("reply_markup", None)
+            return await self._request("sendMessage", payload)
     async def delete_webhook(self, **kwargs):
         return await self._request("deleteWebhook", kwargs)
     async def close(self):
         await self._client.aclose()
     async def _request(self, method: str, payload: dict):
+        payload = serialize_telegram_payload(payload)
         response = await self._client.post(f"{self.base_url}/{method}", json=payload)
         response.raise_for_status()
         return response.json()
