@@ -1,7 +1,8 @@
 """FastAPI entrypoint for the autonomous Threads AI sales agent."""
+import asyncio
 import logging
 from datetime import datetime
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
@@ -12,6 +13,7 @@ from app.database import get_db, init_db
 from app.models import Lead, Post
 from app.schemas import GeneratePostRequest, LeadResponse, PostResponse, PublishPostRequest
 from app.scheduler import start_scheduler
+from app.bot import start_telegram_bot
 from app.threads_api import ThreadsClient
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -41,7 +43,21 @@ async def lifespan(app: FastAPI):
     settings.log_startup()
     init_db()
     start_scheduler()
-    yield
+
+    telegram_task = None
+    if settings.telegram_bot_token:
+        telegram_task = asyncio.create_task(start_telegram_bot())
+        logger.info("Telegram polling task started")
+    else:
+        logger.info("Telegram bot token missing; polling not started")
+
+    try:
+        yield
+    finally:
+        if telegram_task:
+            telegram_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await telegram_task
 
 app = FastAPI(title="AI Sales Agent for Threads", version="1.0.0", lifespan=lifespan)
 
