@@ -28,6 +28,15 @@ START_TEXT = """🚀 AI Growth Marketer
 • /audit_offer — оффер, био и закреп
 • /profile_offer — оформить профиль
 • /client_reply текст — ответ потенциальному клиенту
+• /lead_score текст — оценить лида
+• /hot_reply текст — ответ горячему клиенту
+
+🧲 Бренд и лиды:
+• /brand_today — план на сегодня
+• /brand_sprint — 7-дневный прогрев
+• /brand_profile — упаковка Threads-профиля
+• /lead_score текст — оценить лида
+• /hot_reply текст — ответ горячему клиенту
 
 Главное меню:
 📊 /today — отчёт за сегодня
@@ -155,6 +164,8 @@ async def sales_menu(message: Message):
         "• /sales_preview текст — проверить ответ клиенту\n"
         "• /dm_preview текст — DM-ответ\n"
         "• /client_reply текст — ответ потенциальному клиенту\n"
+        "• /lead_score текст — оценить лида\n"
+        "• /hot_reply текст — ответ горячему клиенту\n"
         "• /sales_status — статус продаж\n"
         "• /whatsapp_status — WhatsApp handoff\n\n"
         "Что дальше:\n1. Вставь сообщение клиента в /sales_preview\n2. Если лид горячий — передай владельцу"

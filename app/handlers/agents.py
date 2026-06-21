@@ -23,6 +23,10 @@ from app.client_acquisition import (
     add_daily_acquisition_posts, acquisition_meta_for_text, build_audit_offer,
     build_client_reply, build_offer_post, build_profile_offer, client_acquisition_report_block,
 )
+from app.brand_lead_agent import (
+    brand_meta_for_text, brand_report_block, build_brand_profile, build_brand_sprint,
+    build_brand_today, build_hot_reply, build_lead_score,
+)
 from app.threads_growth import (
     add_strong_unique_post,
     best_publishable_post,
@@ -139,7 +143,10 @@ async def content_menu(message: Message):
         "• /viral_post тема — пост на тему\n"
         "• /offer_post — пост на входящие заявки\n"
         "• /audit_offer — оффер, био и закреп\n"
-        "• /profile_offer — оформить профиль\n\n"
+        "• /profile_offer — оформить профиль\n"
+        "• /brand_today — план на сегодня\n"
+        "• /brand_sprint — 7-дневный прогрев\n"
+        "• /brand_profile — упаковка Threads-профиля\n\n"
         "Что дальше:\n1. Проверь /next_post\n2. Если очередь слабая — нажми /rebuild"
     )
 
@@ -213,7 +220,7 @@ async def cmd_day(message: Message, settings: Settings):
     except RuntimeError as e: await message.answer(str(e))
 
 
-def render_post(post: QueuedPost) -> str:
+def render_post(post: QueuedPost, settings: Settings | None = None) -> str:
     meta = metadata_for_text(post.text)
     rubric = post.content_format or post.rubric or meta["content_format"]
     angle = post.content_angle or meta["content_angle"]
@@ -225,22 +232,24 @@ def render_post(post: QueuedPost) -> str:
     quality = post.quality_score or meta["quality_score"]
     uniq = post.uniqueness_score or meta["uniqueness_score"]
     acq = acquisition_meta_for_text(post.text)
+    brand = brand_meta_for_text(post.text, settings) if settings and getattr(settings, "brand_lead_agent_enabled", True) else None
     stage = acq.acquisition_stage if acq.content_goal in {"pain", "expert", "offer"} else ("прогрев" if goal not in ("Offer", "продажа") else "оффер")
     why = "есть боль/деньги/сценарий, мягкий CTA и отличие по angle, hook, структуре и CTA"
     return (
         f"Threads draft #{post.id}\nСтатус: {post.status}\n"
         f"Goal: {goal}\ncontent_goal: {acq.content_goal}\nFormat: {rubric}\nAngle: {angle}\nStage: {stage}\nacquisition_stage: {acq.acquisition_stage}\nCTA keyword: {acq.cta_keyword}\n"
+        + (f"brand_day: {brand['brand_day']}\nsprint_stage: {brand['sprint_stage']}\nlead_intent: {brand['lead_intent']}\n" if brand else "") +
         f"hook type: {hook_type}\npain: {pain}\nCTA: {cta}\n"
         f"source: {post.generation_source or post.source or 'unknown'}\nfallback: {'yes' if post.fallback_used else 'no'}\n"
         f"viral_score: {viral}\nquality_score: {quality}\nuniqueness_score: {uniq}\n"
         f"Why this post matters: {why}.\nWhy this post can work: {why}.\n\n{post.text}\n\nПубликация только после подтверждения."
     )
 
-async def show_post(message_or_cb, post: QueuedPost):
+async def show_post(message_or_cb, post: QueuedPost, settings: Settings | None = None):
     if isinstance(message_or_cb, CallbackQuery):
-        await message_or_cb.message.answer(render_post(post), reply_markup=threads_post_keyboard(post.id))
+        await message_or_cb.message.answer(render_post(post, settings), reply_markup=threads_post_keyboard(post.id))
     else:
-        await message_or_cb.answer(render_post(post), reply_markup=threads_post_keyboard(post.id))
+        await message_or_cb.answer(render_post(post, settings), reply_markup=threads_post_keyboard(post.id))
 
 def queue_safe_post(text: str, *, fallback: str, source: str) -> QueuedPost | None:
     # Every generated draft uses the same quality and duplicate gate. The fallback
@@ -265,7 +274,7 @@ async def threads_day(message: Message, settings: Settings):
         growth_runtime.posts_added += len(queued)
         await message.answer(f"Client Acquisition day: добавил {len(queued)} постов (pain → trust → offer).")
         if queued:
-            await show_post(message, queued[0])
+            await show_post(message, queued[0], settings)
         return
     posts = viral_threads_day_posts()[:5] if settings.threads_viral_only else fallback_threads_day_posts()[:5]
     queued = []
@@ -278,7 +287,7 @@ async def threads_day(message: Message, settings: Settings):
         if queued_post:
             queued.append(queued_post)
     await message.answer(f"Добавил в очередь: {len(queued)} постов.")
-    if queued: await show_post(message, queued[0])
+    if queued: await show_post(message, queued[0], settings)
 
 @router.message(Command("threads_post"))
 async def threads_post(message: Message, settings: Settings):
@@ -290,12 +299,12 @@ async def threads_post(message: Message, settings: Settings):
         text = safe_threads_post(topic)
         post = queue_safe_post(text, fallback=safe_threads_post("обработка заявок"), source="threads-post")
     if post:
-        await show_post(message, post)
+        await show_post(message, post, settings)
     else:
         await message.answer("Уникальный draft не добавлен: похожий пост уже есть в очереди.")
 
 @router.message(Command("viral_threads_day"))
-async def viral_threads_day(message: Message):
+async def viral_threads_day(message: Message, settings: Settings):
     posts = viral_threads_day_posts()
     queued = [
         queued_post for index, post in enumerate(posts)
@@ -303,7 +312,7 @@ async def viral_threads_day(message: Message):
     ]
     await message.answer(f"Добавил в очередь: {len(queued)} viral draft-постов.")
     if queued:
-        await show_post(message, queued[0])
+        await show_post(message, queued[0], settings)
 
 
 @router.message(Command("offer_post"))
@@ -313,7 +322,7 @@ async def offer_post(message: Message, settings: Settings):
         post_queue, text, source="client-acquisition-offer", scheduled_hour=getattr(settings, "client_acquisition_daily_offer_post_hour", 18)
     )
     if post:
-        await show_post(message, post)
+        await show_post(message, post, settings)
     else:
         await message.answer(text)
 
@@ -333,15 +342,44 @@ async def client_reply(message: Message):
         return
     await message.answer(build_client_reply(text))
 
+
+@router.message(Command("brand_sprint"))
+async def brand_sprint(message: Message, settings: Settings):
+    await message.answer(build_brand_sprint(settings))
+
+@router.message(Command("brand_today"))
+async def brand_today(message: Message, settings: Settings):
+    await message.answer(build_brand_today(settings))
+
+@router.message(Command("brand_profile"))
+async def brand_profile(message: Message, settings: Settings):
+    await message.answer(build_brand_profile(settings))
+
+@router.message(Command("lead_score"))
+async def lead_score_cmd(message: Message):
+    text = arg_text(message)
+    if not text:
+        await message.answer("Добавьте сообщение клиента. Пример:\n/lead_score Сколько стоит бот для салона?")
+        return
+    await message.answer(build_lead_score(text))
+
+@router.message(Command("hot_reply"))
+async def hot_reply_cmd(message: Message):
+    text = arg_text(message)
+    if not text:
+        await message.answer("Добавьте сообщение клиента. Пример:\n/hot_reply Сколько стоит бот для салона?")
+        return
+    await message.answer(build_hot_reply(text))
+
 @router.message(Command("viral_post"))
-async def viral_post(message: Message):
+async def viral_post(message: Message, settings: Settings):
     niche = arg_text(message)
     if not niche:
         await message.answer("Добавьте нишу после команды. Пример:\n/viral_post клиники")
         return
     post = queue_viral_post(viral_niche_post(niche), source="viral-post", niche=niche)
     if post:
-        await show_post(message, post)
+        await show_post(message, post, settings)
     else:
         await message.answer("Уникальный draft не добавлен: похожий пост уже есть в очереди.")
 
@@ -586,6 +624,7 @@ def build_growth_report(settings: Settings) -> str:
         f"• repeated angles: {', '.join(q['repeated_angles']) if q['repeated_angles'] else 'none'}\n"
         f"• recommendation: {'/growth_rebuild' if q['template_risk'] != 'low' else 'keep angle/hook/CTA rotation'}\n\n"
         + client_acquisition_report_block(settings, post_queue) + "\n\n"
+        + brand_report_block(settings, post_queue, lead_hunter.hot_replies) + "\n\n"
         + "🧠 Рекомендация на завтра:\n"
         f"{'Рекомендация: выполнить /growth_rebuild.' if q['template_risk'] == 'high' else 'держать микс форматов, angles и целей'}\n\n"
         "🔧 Технический блок:\n"
@@ -794,7 +833,7 @@ async def positioning(message: Message):
     await message.answer(POSITIONING_TEXT)
 
 @router.message(Command("threads_queue", "posts"))
-async def threads_queue(message: Message):
+async def threads_queue(message: Message, settings: Settings):
     purge_duplicate_drafts(post_queue)
     cleaned = 0
     for draft in list(post_queue.list_publishable()):
@@ -807,12 +846,15 @@ async def threads_queue(message: Message):
     lines = []
     for p in posts:
         meta = metadata_for_text(p.text)
+        brand = brand_meta_for_text(p.text, settings) if getattr(settings, "brand_lead_agent_enabled", True) else None
         lines.append(
             f"#{p.id} {p.status}\n"
-            f"content_goal: {acquisition_meta_for_text(p.text).content_goal}\n"
-            f"acquisition_stage: {acquisition_meta_for_text(p.text).acquisition_stage}\n"
-            f"CTA keyword: {acquisition_meta_for_text(p.text).cta_keyword}\n"
-            f"format: {p.content_format or p.rubric or meta['content_format']}\n"
+            + (f"brand_day: {brand['brand_day']}\nsprint_stage: {brand['sprint_stage']}\n" if brand else "")
+            + f"content_goal: {brand['content_goal'] if brand else acquisition_meta_for_text(p.text).content_goal}\n"
+            + f"acquisition_stage: {brand['acquisition_stage'] if brand else acquisition_meta_for_text(p.text).acquisition_stage}\n"
+            f"CTA keyword: {brand['cta_keyword'] if brand else acquisition_meta_for_text(p.text).cta_keyword}\n"
+            + (f"lead_intent: {brand['lead_intent']}\n" if brand else "")
+            + f"format: {p.content_format or p.rubric or meta['content_format']}\n"
             f"angle: {p.content_angle or meta['content_angle']}\n"
             f"hook: {(p.hook or meta['hook'])[:90]}\n"
             f"source: {p.generation_source or p.source or 'unknown'}\n"
@@ -942,12 +984,12 @@ async def threads_rewrite(message: Message, settings: Settings):
     await show_post(message, post_queue.update_post(post.id, rewritten))
 
 @router.message(Command("threads_next", "next_post"))
-async def threads_next(message: Message):
+async def threads_next(message: Message, settings: Settings):
     post = next_unique_publishable_post(post_queue)
     if not post:
         await message.answer("Нет нормальных draft/ready постов. Выполните /growth_rebuild.")
         return
-    await show_post(message, post)
+    await show_post(message, post, settings)
 
 @router.callback_query(F.data.startswith("threads:"))
 async def threads_callback(callback: CallbackQuery, settings: Settings):
