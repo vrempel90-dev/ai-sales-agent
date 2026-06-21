@@ -186,3 +186,7 @@ sh -c 'uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}'
 - добавить observability: structured logs, metrics, tracing;
 - добавить rate limit и backoff под реальные лимиты Threads;
 - добавить e2e тесты с sandbox Meta app.
+
+## Safety notes
+
+В безопасном режиме: нет scraping, нет mass DM, нет browser automation без явного ручного включения и официальной доступной сессии. Автоматические DM отключены; live browser comments требуют отдельного подтверждённого режима и safety checks.

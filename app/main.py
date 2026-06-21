@@ -17,6 +17,24 @@ from app.threads_api import ThreadsClient
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+class BotCommand:
+    def __init__(self, command: str, description: str):
+        self.command = command
+        self.description = description
+
+BOT_COMMANDS = [
+    BotCommand("start", "Главное меню"),
+    BotCommand("today", "Отчёт за сегодня"),
+    BotCommand("plan", "План на день"),
+    BotCommand("content", "Посты и контент"),
+    BotCommand("leads", "Клиенты и лиды"),
+    BotCommand("sales", "Продажи и ответы"),
+    BotCommand("status", "Статус автопилота"),
+    BotCommand("system", "Здоровье системы"),
+    BotCommand("next_post", "Следующий пост"),
+    BotCommand("next_lead", "Следующий лид"),
+]
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
