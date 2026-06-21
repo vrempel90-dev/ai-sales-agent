@@ -32,5 +32,37 @@ class CallbackQuery:
 class InlineKeyboardButton:
     def __init__(self, **kwargs): self.__dict__.update(kwargs)
 
+    def model_dump(self, exclude_none=True):
+        data = {
+            "text": getattr(self, "text", None),
+            "callback_data": getattr(self, "callback_data", None),
+            "url": getattr(self, "url", None),
+        }
+        if exclude_none:
+            data = {key: value for key, value in data.items() if value is not None}
+        return data
+
+    def dict(self, exclude_none=True):
+        return self.model_dump(exclude_none=exclude_none)
+
+
 class InlineKeyboardMarkup:
     def __init__(self, **kwargs): self.__dict__.update(kwargs)
+
+    def model_dump(self, exclude_none=True):
+        return {
+            "inline_keyboard": [
+                [
+                    button.model_dump(exclude_none=exclude_none)
+                    if hasattr(button, "model_dump")
+                    else button.dict(exclude_none=exclude_none)
+                    if hasattr(button, "dict")
+                    else button
+                    for button in row
+                ]
+                for row in getattr(self, "inline_keyboard", [])
+            ]
+        }
+
+    def dict(self, exclude_none=True):
+        return self.model_dump(exclude_none=exclude_none)
