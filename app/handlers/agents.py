@@ -848,24 +848,24 @@ async def threads_queue(message: Message, settings: Settings):
         meta = metadata_for_text(p.text)
         brand = brand_meta_for_text(p.text, settings) if getattr(settings, "brand_lead_agent_enabled", True) else None
         lines.append(
-            f"#{p.id} {p.status}\n"
-            + (f"brand_day: {brand['brand_day']}\nsprint_stage: {brand['sprint_stage']}\n" if brand else "")
-            + f"content_goal: {brand['content_goal'] if brand else acquisition_meta_for_text(p.text).content_goal}\n"
-            + f"acquisition_stage: {brand['acquisition_stage'] if brand else acquisition_meta_for_text(p.text).acquisition_stage}\n"
-            f"CTA keyword: {brand['cta_keyword'] if brand else acquisition_meta_for_text(p.text).cta_keyword}\n"
-            + (f"lead_intent: {brand['lead_intent']}\n" if brand else "")
-            + f"format: {p.content_format or p.rubric or meta['content_format']}\n"
-            f"angle: {p.content_angle or meta['content_angle']}\n"
-            f"hook: {(p.hook or meta['hook'])[:90]}\n"
-            f"source: {p.generation_source or p.source or 'unknown'}\n"
-            f"fallback: {'yes' if p.fallback_used else 'no'}\n"
-            f"viral_score: {p.viral_score or meta['viral_score']}\n"
-            f"quality_score: {p.quality_score or meta['quality_score']}\n"
-            f"uniqueness_score: {p.uniqueness_score or meta['uniqueness_score']}\n"
+            f"#{p.id} — статус: {p.status}\n"
+            + (f"День бренда: {brand['brand_day']}\nЭтап прогрева: {brand['sprint_stage']}\n" if brand else "")
+            + f"Цель контента: {brand['content_goal'] if brand else acquisition_meta_for_text(p.text).content_goal}\n"
+            + f"Этап воронки: {brand['acquisition_stage'] if brand else acquisition_meta_for_text(p.text).acquisition_stage}\n"
+            f"Ключевое слово CTA: {brand['cta_keyword'] if brand else acquisition_meta_for_text(p.text).cta_keyword}\n"
+            + (f"Намерение лида: {brand['lead_intent']}\n" if brand else "")
+            + f"Формат: {p.content_format or p.rubric or meta['content_format']}\n"
+            f"Угол: {p.content_angle or meta['content_angle']}\n"
+            f"Хук: {(p.hook or meta['hook'])[:90]}\n"
+            f"Источник: {p.generation_source or p.source or 'unknown'}\n"
+            f"Запасной шаблон: {'да' if p.fallback_used else 'нет'}\n"
+            f"Вирусный балл: {p.viral_score or meta['viral_score']}\n"
+            f"Балл качества: {p.quality_score or meta['quality_score']}\n"
+            f"Балл уникальности: {p.uniqueness_score or meta['uniqueness_score']}\n"
             f"CTA: {p.cta_type or meta['cta_type']}\n"
-            f"preview: {p.text[:120]}"
+            f"Превью: {p.text[:120]}"
         )
-    warning = "⚠️ Queue cleanup needed. Run /growth_rebuild.\n\n" if cleaned else ""
+    warning = "⚠️ Очередь очищена от слабых/дублирующих постов. Если нужно пополнить — выполните /growth_rebuild.\n\n" if cleaned else ""
     await message.answer(warning + "\n\n".join(lines))
 
 @router.message(Command("health"))
