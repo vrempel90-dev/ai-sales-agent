@@ -138,3 +138,43 @@ def test_viral_niche_post_is_safe_and_ignores_forbidden_niche():
     assert validate_threads_post(normal)[0]
     assert validate_threads_post(unsafe_input)[0]
     assert "сайт" not in unsafe_input.lower()
+
+
+def test_threads_next_can_render_post_with_keyboard(monkeypatch):
+    from app.handlers import agents
+    from app.post_queue import QueuedPost
+
+    post = QueuedPost(id="42", text="AI-администратор отвечает первым и не теряет заявки из Direct.", status="draft", created_at="now")
+    sent = []
+
+    class FakeMessage:
+        async def answer(self, text, **kwargs):
+            sent.append((text, kwargs))
+
+    monkeypatch.setattr(agents, "next_unique_publishable_post", lambda _queue: post)
+
+    asyncio.run(agents.threads_next(FakeMessage(), SimpleNamespace(brand_lead_agent_enabled=False)))
+
+    assert sent
+    assert "Threads draft #42" in sent[0][0]
+    assert sent[0][1]["reply_markup"].model_dump()["inline_keyboard"][0][0]["callback_data"] == "threads:publish:42"
+
+
+def test_offer_post_can_render_post_with_keyboard(monkeypatch):
+    from app.handlers import agents
+    from app.post_queue import QueuedPost
+
+    post = QueuedPost(id="7", text="AI-администратор закрывает первый ответ и follow-up.", status="draft", created_at="now")
+    sent = []
+
+    class FakeMessage:
+        async def answer(self, text, **kwargs):
+            sent.append((text, kwargs))
+
+    monkeypatch.setattr(agents, "add_strong_unique_post", lambda *_args, **_kwargs: post)
+
+    asyncio.run(agents.offer_post(FakeMessage(), SimpleNamespace(client_acquisition_main_keyword="разбор", client_acquisition_daily_offer_post_hour=18, brand_lead_agent_enabled=False)))
+
+    assert sent
+    assert "Threads draft #7" in sent[0][0]
+    assert sent[0][1]["reply_markup"].model_dump()["inline_keyboard"][0][0]["callback_data"] == "threads:publish:7"
