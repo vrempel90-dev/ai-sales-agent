@@ -59,27 +59,37 @@ def get_brand_day(day: int) -> BrandDay:
     return BRAND_SPRINT[max(1, min(day, len(BRAND_SPRINT))) - 1]
 
 def build_brand_sprint(settings) -> str:
-    lines = ["🧲 AI Brand & Lead Agent — 7-day client sprint", "Режим строит воронку и повышает шанс входящих: проблема → цена потерь → AI-решение → «разбор».\n"]
+    lines = ["🧲 AI Brand & Lead Agent — 7-дневный клиентский прогрев", "Режим строит воронку и повышает шанс входящих: проблема → цена потерь → AI-решение → «разбор».\n"]
     for d in BRAND_SPRINT:
-        lines.append(f"День {d.day}: {d.theme}\nЦель: {d.goal}\n3 поста:\n1. {d.posts[0]}\n2. {d.posts[1]}\n3. {d.posts[2]}\nCTA: {d.cta}\nКого привлекает: {d.attracts}\nРеакция-лид: {d.lead_reaction}")
+        lines.append(f"День {d.day}: {d.theme}\nЦель: {d.goal}\n3 поста:\n1. {d.posts[0]}\n2. {d.posts[1]}\n3. {d.posts[2]}\nПризыв: {d.cta}\nКого привлекает: {d.attracts}\nРеакция-лид: {d.lead_reaction}")
     return "\n\n".join(lines)
 
 def build_brand_today(settings) -> str:
     day = get_brand_day(current_sprint_day(settings))
     cta = _setting(settings, "brand_lead_agent_main_cta", "Напишите “разбор”")
     return (
-        "AI Brand Plan Today:\n"
-        f"Sprint day: {day.day}/7 — {day.stage}\n"
-        f"Positioning message: {_setting(settings, 'brand_lead_agent_positioning', 'AI-автоматизатор для бизнесов, которые теряют заявки в Direct / WhatsApp / Telegram')}\n"
-        f"Ниша дня: {day.niche}\n"
-        f"Pain post idea: {day.posts[0]}\n"
-        f"Trust post idea: {day.posts[1]}\n"
-        f"Offer post idea: {day.posts[2]}\n"
-        f"CTA of the day: {cta}\n"
-        f"Expected inbound keyword: {DEFAULT_CTA_KEYWORD}\n"
-        f"Best niche to target today: {day.niche}\n"
-        f"Sales angle of the day: {day.sales_angle}\n"
-        "What to answer if someone asks price: AI-администратор обычно начинается от 150 000 ₸, но сначала лучше сделать короткий разбор каналов, записи и follow-up."
+        "🧲 План бренда на сегодня\n\n"
+        f"День прогрева: {day.day}/7 — {day.theme}\n\n"
+        "Позиционирование:\n"
+        f"{_setting(settings, 'brand_lead_agent_positioning', 'AI-автоматизатор для бизнесов, которые теряют заявки в Direct / WhatsApp / Telegram')}\n\n"
+        "Ниша дня:\n"
+        f"{day.niche}\n\n"
+        "Идея поста на боль:\n"
+        f"{day.posts[0]}\n\n"
+        "Идея поста на доверие:\n"
+        f"{day.posts[1]}\n\n"
+        "Идея оффер-поста:\n"
+        f"{day.posts[2]}\n\n"
+        "CTA дня:\n"
+        f"{cta}\n\n"
+        "Ожидаемое ключевое слово:\n"
+        f"{DEFAULT_CTA_KEYWORD}\n\n"
+        "Лучшая ниша на сегодня:\n"
+        f"{day.niche}\n\n"
+        "Продающий угол дня:\n"
+        f"{day.sales_angle}\n\n"
+        "Что отвечать, если спросят цену:\n"
+        "AI-администратор обычно начинается от 150 000 ₸, но сначала лучше сделать короткий разбор каналов, записи и follow-up."
     )
 
 def build_brand_profile(settings) -> str:
@@ -87,10 +97,10 @@ def build_brand_profile(settings) -> str:
     return (
         "🧲 Упаковка Threads-профиля\n\n"
         "Имя / описание: AI-администраторы для салонов, клиник и услуг\n\n"
-        "Bio:\nAI-администраторы для салонов, клиник и услуг.\nПомогаю не терять заявки из Direct / WhatsApp.\nНапиши “разбор” — найду 3 точки потери клиентов.\n\n"
+        "Описание профиля:\nAI-администраторы для салонов, клиник и услуг.\nПомогаю не терять заявки из Direct / WhatsApp.\nНапиши “разбор” — найду 3 точки потери клиентов.\n\n"
         "Закреплённый пост:\nЯ делаю AI-администраторов для бизнесов, которые получают заявки в Direct, WhatsApp и Telegram. Сначала смотрю путь заявки: первый ответ, запись, CRM и follow-up. Потом показываю, что можно автоматизировать без давления и сложного внедрения.\n\n"
         "3 тезиса “чем помогаю”:\n1. Быстро найти, где теряются входящие заявки.\n2. Собрать сценарий AI-администратора под вашу нишу.\n3. Снизить хаос между Direct / WhatsApp / Telegram и записью.\n\n"
-        f"CTA: Напишите “{keyword}” — бесплатно покажу 3 точки потери заявок.\n\n"
+        f"Призыв: Напишите “{keyword}” — бесплатно покажу 3 точки потери заявок.\n\n"
         "Первый комментарий под закрепом:\nЕсли хотите — пришлите нишу и куда приходят заявки. Я отвечу, с какой точки автоматизации лучше начать."
     )
 
@@ -113,7 +123,7 @@ def score_lead(text: str) -> dict[str, object]:
     if any(x in n for x in ("салон", "клиник", "стомат", "космет", "барбер", "школ", "услуг")):
         score += 5
     score = max(0, min(100, score))
-    temp = "cold / low" if score <= 30 else "warm interest" if score <= 60 else "potential client" if score <= 80 else "hot lead"
+    temp = "холодный / низкий интерес" if score <= 30 else "тёплый интерес" if score <= 60 else "потенциальный клиент" if score <= 80 else "горячий лид"
     why = ", ".join(hot or warm) if (hot or warm) else "нет явного бизнес-намерения или боли по заявкам"
     return {"score": score, "temperature": temp, "why": why, "handoff": score >= 80}
 
@@ -123,12 +133,12 @@ def build_lead_score(text: str) -> str:
     question = "Куда сейчас приходят заявки и кто отвечает первым?" if data["score"] >= 31 else "Есть ли у вас входящие заявки из Direct / WhatsApp / Telegram?"
     hot_note = "\n\n🔥 Горячий лид. Лучше отвечать вручную или через /client_reply и переводить в разбор." if data["score"] >= 80 else ""
     return (
-        f"score: {data['score']}\n"
-        f"lead temperature: {data['temperature']}\n"
-        f"why: {data['why']}\n"
-        f"next reply: {reply}\n"
-        f"next question: {question}\n"
-        f"should handoff to owner: {'yes' if data['handoff'] else 'no'}"
+        f"Оценка лида: {data['score']}\n"
+        f"Температура лида: {data['temperature']}\n"
+        f"Почему такая оценка: {data['why']}\n"
+        f"Следующий ответ: {reply}\n"
+        f"Следующий вопрос: {question}\n"
+        f"Передать владельцу: {'да' if data['handoff'] else 'нет'}"
         f"{hot_note}"
     )
 
@@ -160,14 +170,14 @@ def brand_report_block(settings, queue: PostQueue, current_week_leads: int = 0) 
     day = get_brand_day(current_sprint_day(settings))
     return (
         "🧲 Brand & Lead Agent:\n"
-        f"✅ mode: {'enabled' if enabled else 'disabled'}\n"
-        f"Sprint day: {day.day}/{_setting(settings, 'brand_lead_agent_sprint_days', 7)}\n"
-        f"Niche today: {day.niche}\n"
-        f"CTA: “{_setting(settings, 'brand_lead_agent_main_cta', 'Напишите “разбор”')}”\n"
-        f"posts planned: {_setting(settings, 'brand_lead_agent_daily_posts', 3)}\n"
-        f"offer post planned: {'yes' if day.stage in {'free_audit', 'strong_cta', 'solution_explained'} else 'no'}\n"
-        "hot lead keywords tracked: сколько стоит, нужен бот, салон, клиника, Direct, WhatsApp, админ не успевает\n"
-        f"target leads this week: {_setting(settings, 'brand_lead_agent_target_leads_per_week', 5)}\n"
-        f"current week leads: {current_week_leads}\n"
-        f"recommendation for tomorrow: усилить пост про {day.niche}, Direct и скорость ответа"
+        f"✅ режим: {'включён' if enabled else 'выключен'}\n"
+        f"День прогрева: {day.day}/{_setting(settings, 'brand_lead_agent_sprint_days', 7)}\n"
+        f"Ниша дня: {day.niche}\n"
+        f"CTA дня: “{_setting(settings, 'brand_lead_agent_main_cta', 'Напишите “разбор”')}”\n"
+        f"Постов запланировано: {_setting(settings, 'brand_lead_agent_daily_posts', 3)}\n"
+        f"Оффер-пост запланирован: {'да' if day.stage in {'free_audit', 'strong_cta', 'solution_explained'} else 'нет'}\n"
+        "Отслеживаемые фразы горячих лидов: сколько стоит, нужен бот, салон, клиника, Direct, WhatsApp, админ не успевает\n"
+        f"Цель по лидам на неделю: {_setting(settings, 'brand_lead_agent_target_leads_per_week', 5)}\n"
+        f"Лидов за текущую неделю: {current_week_leads}\n"
+        f"Рекомендация на завтра: усилить пост про {day.niche}, Direct и скорость ответа"
     )
